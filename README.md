@@ -545,6 +545,127 @@ nginx:
 └── main.go               # Application entry point
 ```
 
+## Testing
+
+### Running Unit Tests
+
+All packages include comprehensive unit tests. Run tests with:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with coverage
+go test -cover ./...
+
+# Run tests for specific package
+go test ./internal/config
+go test ./internal/ipban
+go test ./internal/syslog
+go test ./internal/spoa
+go test ./internal/envoy
+go test ./internal/nginx
+
+# Run tests with race detection
+go test -race ./...
+
+# Generate coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
+```
+
+### Test Coverage
+
+The test suite covers:
+
+#### Configuration Package (`internal/config`)
+- Configuration loading and validation
+- Default value handling
+- YAML parsing and unmarshaling
+- Error handling for invalid configurations
+
+#### IP Ban Manager (`internal/ipban`)
+- IP violation recording and tracking
+- Ban escalation logic with configurable factors
+- Radix tree operations (insert, search, delete)
+- Time window violation cleanup
+- Concurrent access safety
+- Memory TTL management
+- IPv4 and IPv6 support
+
+#### Syslog Reader (`internal/syslog`)
+- Syslog message processing and pattern matching
+- Regex pattern compilation and execution
+- IP extraction from various log formats
+- Integration with ban manager
+- UDP socket handling and timeouts
+- Real-time log processing
+
+#### SPOA Server (`internal/spoa`)
+- HAProxy SPOA protocol implementation
+- TCP connection handling and client management
+- Message parsing and response generation
+- Ban status checking and responses
+- Concurrent client handling
+- Connection timeouts and error handling
+
+#### Envoy Server (`internal/envoy`)
+- gRPC ext_authz service implementation
+- Authorization request processing
+- IP extraction from request headers and metadata
+- Allow/deny response generation
+- gRPC status code handling
+- Concurrent request processing
+
+#### Nginx Server (`internal/nginx`)
+- HTTP auth_request endpoint implementation
+- IP extraction from various headers (X-Original-IP, X-Forwarded-For, etc.)
+- HTTP response handling with custom headers
+- Health check endpoint
+- JSON error response support
+- Concurrent HTTP request handling
+
+### Integration Testing
+
+The project includes a complete Docker Compose test environment in `tests-ressources/`:
+
+```bash
+# Start test environment
+docker-compose up -d
+
+# Run integration tests
+cd tests-ressources
+./run-integration-tests.sh  # (if available)
+
+# Test individual services
+curl -H "X-Real-IP: 192.168.1.100" http://localhost:8888/auth
+curl http://localhost:8888/health
+
+# Generate test traffic
+telnet localhost 143  # IMAP through HAProxy
+curl http://localhost:8080/  # HTTP through Envoy
+curl http://localhost:8081/  # HTTP through Nginx
+```
+
+### Performance Testing
+
+```bash
+# Benchmark tests
+go test -bench=. ./internal/ipban
+go test -bench=. ./internal/syslog
+
+# Memory profiling
+go test -memprofile=mem.prof ./internal/ipban
+go tool pprof mem.prof
+
+# CPU profiling
+go test -cpuprofile=cpu.prof ./internal/ipban
+go tool pprof cpu.prof
+```
+
 ## Configuration Files
 
 - `tests-ressources/config-example.yaml` - Example main configuration with SPOA, Envoy, and Nginx

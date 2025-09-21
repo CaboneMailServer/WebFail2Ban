@@ -180,6 +180,20 @@ func (m *Manager) cleanup() {
 	}
 }
 
+// GetIPStats returns the statistics for a specific IP (for testing)
+func (m *Manager) GetIPStats(ip string) *IPStats {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return m.stats[ip]
+}
+
+// GetStatsCount returns the number of IPs in the stats map (for testing)
+func (m *Manager) GetStatsCount() int {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return len(m.stats)
+}
+
 func (rt *RadixTree) Insert(ip string) {
 	bytes := ipToBytes(ip)
 	if bytes == nil {
