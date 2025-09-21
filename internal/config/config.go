@@ -10,6 +10,8 @@ import (
 type Config struct {
 	Syslog SyslogConfig `mapstructure:"syslog"`
 	SPOA   SPOAConfig   `mapstructure:"spoa"`
+	Envoy  EnvoyConfig  `mapstructure:"envoy"`
+	Nginx  NginxConfig  `mapstructure:"nginx"`
 	Ban    BanConfig    `mapstructure:"ban"`
 }
 
@@ -32,6 +34,22 @@ type SPOAConfig struct {
 	Port        int           `mapstructure:"port"`
 	MaxClients  int           `mapstructure:"max_clients"`
 	ReadTimeout time.Duration `mapstructure:"read_timeout"`
+	Enabled     bool          `mapstructure:"enabled"`
+}
+
+type EnvoyConfig struct {
+	Address string `mapstructure:"address"`
+	Port    int    `mapstructure:"port"`
+	Enabled bool   `mapstructure:"enabled"`
+}
+
+type NginxConfig struct {
+	Address      string        `mapstructure:"address"`
+	Port         int           `mapstructure:"port"`
+	Enabled      bool          `mapstructure:"enabled"`
+	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
+	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+	ReturnJSON   bool          `mapstructure:"return_json"`
 }
 
 type BanConfig struct {
@@ -73,6 +91,18 @@ func setDefaults() {
 	viper.SetDefault("spoa.port", 12345)
 	viper.SetDefault("spoa.max_clients", 100)
 	viper.SetDefault("spoa.read_timeout", "30s")
+	viper.SetDefault("spoa.enabled", true)
+
+	viper.SetDefault("envoy.address", "0.0.0.0")
+	viper.SetDefault("envoy.port", 9001)
+	viper.SetDefault("envoy.enabled", true)
+
+	viper.SetDefault("nginx.address", "0.0.0.0")
+	viper.SetDefault("nginx.port", 8888)
+	viper.SetDefault("nginx.enabled", true)
+	viper.SetDefault("nginx.read_timeout", "10s")
+	viper.SetDefault("nginx.write_timeout", "10s")
+	viper.SetDefault("nginx.return_json", false)
 
 	viper.SetDefault("ban.initial_ban_time", "5m")
 	viper.SetDefault("ban.max_ban_time", "24h")

@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o fail2ban-haproxy .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o fail2ban-service .
 
 # Final stage
 FROM alpine:latest
@@ -22,19 +22,25 @@ RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /root/
 
 # Copy the binary from builder stage
-COPY --from=builder /app/fail2ban-haproxy .
-
-# Copy config file
-COPY tests-ressources/config.yaml .
+COPY --from=builder /app/fail2ban-service .
 
 # Create directory for logs
 RUN mkdir -p /var/log/fail2ban-haproxy
 
-# Expose SPOA port
-EXPOSE 12345
+# Create non-root user for security
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup && \
+    chown -R appuser:appgroup /root /var/log/fail2ban-haproxy
 
-# Expose syslog port
-EXPOSE 514/udp
+# Expose all protocol ports
+EXPOSE 12345 9001 8888 514/udp
 
-CMD ["./fail2ban-haproxy"]
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8888/health || exit 1
+
+# Switch to non-root user
+USER appuser
+
+CMD ["./fail2ban-service"]
 

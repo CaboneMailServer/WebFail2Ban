@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fail2ban-haproxy/internal/config"
+	"fail2ban-haproxy/internal/envoy"
 	"fail2ban-haproxy/internal/ipban"
+	"fail2ban-haproxy/internal/nginx"
 	"fail2ban-haproxy/internal/spoa"
 	"fail2ban-haproxy/internal/syslog"
 	"os"
@@ -31,6 +33,24 @@ func main() {
 
 	logger.Info("Starting fail2ban-haproxy service")
 
+	// Validate that at least one proxy protocol is enabled
+	if !cfg.SPOA.Enabled && !cfg.Envoy.Enabled && !cfg.Nginx.Enabled {
+		logger.Fatal("At least one proxy protocol must be enabled (SPOA, Envoy, or Nginx)")
+	}
+
+	// Log which protocols are enabled
+	enabledProtocols := []string{}
+	if cfg.SPOA.Enabled {
+		enabledProtocols = append(enabledProtocols, "SPOA")
+	}
+	if cfg.Envoy.Enabled {
+		enabledProtocols = append(enabledProtocols, "Envoy")
+	}
+	if cfg.Nginx.Enabled {
+		enabledProtocols = append(enabledProtocols, "Nginx")
+	}
+	logger.Info("Enabled proxy protocols", zap.Strings("protocols", enabledProtocols))
+
 	// Initialize IP ban manager
 	banManager := ipban.NewManager(cfg, logger)
 
@@ -38,7 +58,22 @@ func main() {
 	syslogReader := syslog.NewReader(cfg, logger, banManager)
 
 	// Initialize SPOA server
-	spoaServer := spoa.NewServer(cfg, logger, banManager)
+	var spoaServer *spoa.Server
+	if cfg.SPOA.Enabled {
+		spoaServer = spoa.NewServer(cfg, logger, banManager)
+	}
+
+	// Initialize Envoy ext_authz server
+	var envoyServer *envoy.Server
+	if cfg.Envoy.Enabled {
+		envoyServer = envoy.NewServer(cfg, logger, banManager)
+	}
+
+	// Initialize Nginx auth_request server
+	var nginxServer *nginx.Server
+	if cfg.Nginx.Enabled {
+		nginxServer = nginx.NewServer(cfg, logger, banManager)
+	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,14 +91,38 @@ func main() {
 		}
 	}()
 
-	// Start SPOA server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := spoaServer.Start(ctx); err != nil {
-			logger.Error("SPOA server failed", zap.Error(err))
-		}
-	}()
+	// Start SPOA server if enabled
+	if cfg.SPOA.Enabled && spoaServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := spoaServer.Start(ctx); err != nil {
+				logger.Error("SPOA server failed", zap.Error(err))
+			}
+		}()
+	}
+
+	// Start Envoy ext_authz server if enabled
+	if cfg.Envoy.Enabled && envoyServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := envoyServer.Start(ctx); err != nil {
+				logger.Error("Envoy ext_authz server failed", zap.Error(err))
+			}
+		}()
+	}
+
+	// Start Nginx auth_request server if enabled
+	if cfg.Nginx.Enabled && nginxServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := nginxServer.Start(ctx); err != nil {
+				logger.Error("Nginx auth_request server failed", zap.Error(err))
+			}
+		}()
+	}
 
 	// Start cleanup routine
 	wg.Add(1)

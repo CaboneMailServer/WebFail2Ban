@@ -43,6 +43,20 @@ spoa:
   port: 12345
   max_clients: 100
   read_timeout: "30s"
+  enabled: true
+
+envoy:
+  address: "0.0.0.0"
+  port: 9001
+  enabled: true
+
+nginx:
+  address: "0.0.0.0"
+  port: 8888
+  enabled: true
+  read_timeout: "10s"
+  write_timeout: "10s"
+  return_json: false
 
 ban:
   initial_ban_time: "5m"

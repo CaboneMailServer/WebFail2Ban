@@ -1,2 +1,4 @@
 /.idea/
 *.iml
+/fail2ban-haproxy.exe
+/fail2ban-haproxy

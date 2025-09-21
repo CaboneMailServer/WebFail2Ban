@@ -1,14 +1,16 @@
 version: '3.8'
 
 services:
-  fail2ban-haproxy:
+  fail2ban-service:
     build: .
-    container_name: fail2ban-haproxy
+    container_name: fail2ban-service
     ports:
-      - "12345:12345"  # SPOA port
+      - "12345:12345"  # SPOA port (HAProxy)
+      - "9001:9001"    # gRPC port (Envoy)
+      - "8888:8888"    # HTTP port (Nginx)
       - "514:514/udp"  # Syslog port
     volumes:
-      - ./tests-ressources/config.yaml:/root/config.yaml:ro
+      - ./tests-ressources/config.yaml:/app/config.yaml:ro
       - ./tests-ressources/logs:/var/log/fail2ban-haproxy
     environment:
       - TZ=UTC
@@ -30,7 +32,7 @@ services:
       - ./tests-ressources/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - ./tests-ressources/spoe-ip-reputation.conf:/usr/local/etc/haproxy/spoe-ip-reputation.conf:ro
     depends_on:
-      - fail2ban-haproxy
+      - fail2ban-service
       - dovecot
       - postfix
       - sogo
@@ -54,7 +56,7 @@ services:
     logging:
       driver: syslog
       options:
-        syslog-address: "udp://fail2ban-haproxy:514"
+        syslog-address: "udp://fail2ban-service:514"
         tag: "dovecot"
 
   postfix:
@@ -76,7 +78,7 @@ services:
     logging:
       driver: syslog
       options:
-        syslog-address: "udp://fail2ban-haproxy:514"
+        syslog-address: "udp://fail2ban-service:514"
         tag: "postfix"
 
   sogo:
@@ -103,7 +105,7 @@ services:
     logging:
       driver: syslog
       options:
-        syslog-address: "udp://fail2ban-haproxy:514"
+        syslog-address: "udp://fail2ban-service:514"
         tag: "sogo"
 
   postgres:
@@ -123,6 +125,38 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis-cache
+    restart: unless-stopped
+    networks:
+      - mail-network
+
+  # Envoy proxy for testing ext_authz integration
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    container_name: envoy-proxy
+    ports:
+      - "8080:8080"   # Envoy HTTP listener
+      - "9901:9901"   # Envoy admin
+    volumes:
+      - ./tests-ressources/envoy-example.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on:
+      - fail2ban-service
+      - sogo
+    restart: unless-stopped
+    networks:
+      - mail-network
+    command: ["/usr/local/bin/envoy", "-c", "/etc/envoy/envoy.yaml"]
+
+  # Nginx proxy for testing auth_request integration
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "8081:80"     # Nginx HTTP listener
+    volumes:
+      - ./tests-ressources/nginx-example.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - fail2ban-service
+      - sogo
     restart: unless-stopped
     networks:
       - mail-network
