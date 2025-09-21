@@ -1,0 +1,78 @@
+# Hostname et domaine
+myhostname = mail.example.com
+mydomain = example.com
+myorigin = $mydomain
+
+# Interfaces et réseaux
+inet_interfaces = all
+inet_protocols = ipv4
+mynetworks = 127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12
+
+# Sécurité SMTP
+smtpd_banner = $myhostname ESMTP
+smtpd_helo_required = yes
+disable_vrfy_command = yes
+
+# Restrictions de sécurité
+smtpd_recipient_restrictions =
+    permit_sasl_authenticated,
+    permit_mynetworks,
+    reject_unauth_destination,
+    reject_invalid_hostname,
+    reject_non_fqdn_hostname,
+    reject_non_fqdn_sender,
+    reject_non_fqdn_recipient,
+    reject_unknown_sender_domain,
+    reject_unknown_recipient_domain,
+    reject_rbl_client zen.spamhaus.org,
+    permit
+
+smtpd_sender_restrictions =
+    permit_sasl_authenticated,
+    permit_mynetworks,
+    reject_non_fqdn_sender,
+    reject_unknown_sender_domain
+
+# Authentification SASL
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain = $myhostname
+broken_sasl_auth_clients = yes
+
+# TLS/SSL
+smtpd_tls_cert_file = /etc/ssl/postfix/server.crt
+smtpd_tls_key_file = /etc/ssl/postfix/server.key
+smtpd_tls_security_level = may
+smtpd_tls_protocols = !SSLv2, !SSLv3
+smtpd_tls_ciphers = medium
+smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, SRP, CAMELLIA, SEED
+
+# Client TLS
+smtp_tls_security_level = may
+smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
+
+# Limites de connexion et rate limiting
+smtpd_client_connection_count_limit = 50
+smtpd_client_connection_rate_limit = 30
+smtpd_client_message_rate_limit = 100
+smtpd_client_recipient_rate_limit = 200
+smtpd_client_event_limit_exceptions = ${mynetworks}
+
+# Anvil pour le rate limiting
+anvil_rate_time_unit = 60s
+anvil_status_update_time = 600s
+
+# Logging pour fail2ban
+maillog_file = /dev/stdout
+
+# Virtual domains (si nécessaire)
+virtual_mailbox_domains = /etc/postfix/virtual_domains
+virtual_mailbox_maps = /etc/postfix/virtual_mailboxes
+virtual_alias_maps = /etc/postfix/virtual_aliases
+virtual_mailbox_base = /var/mail
+virtual_minimum_uid = 1000
+virtual_uid_maps = static:1000
+virtual_gid_maps = static:1000
+

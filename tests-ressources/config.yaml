@@ -1,0 +1,55 @@
+syslog:
+  address: "0.0.0.0:514"
+  protocol: "udp"
+  patterns:
+    - name: "dovecot_auth_failure"
+      regex: "dovecot:.*auth-worker.*auth failed.*rip=([0-9.]+)"
+      ip_group: 1
+      severity: 3
+      description: "Dovecot authentication failure"
+
+    - name: "dovecot_login_failure"
+      regex: "dovecot:.*imap-login.*Disconnected.*auth failed.*rip=([0-9.]+)"
+      ip_group: 1
+      severity: 4
+      description: "Dovecot IMAP login failure"
+
+    - name: "dovecot_brute_force"
+      regex: "dovecot:.*auth.*password mismatch.*rip=([0-9.]+)"
+      ip_group: 1
+      severity: 5
+      description: "Dovecot password brute force attempt"
+
+    - name: "dovecot_invalid_user"
+      regex: "dovecot:.*auth.*unknown user.*rip=([0-9.]+)"
+      ip_group: 1
+      severity: 2
+      description: "Dovecot unknown user attempt"
+
+    - name: "postfix_sasl_auth_failure"
+      regex: "postfix/smtpd.*SASL.*authentication failed.*\\[([0-9.]+)\\]"
+      ip_group: 1
+      severity: 4
+      description: "Postfix SASL authentication failure"
+
+    - name: "sogo_auth_failure"
+      regex: "sogod .*Login failed for user.*from ([0-9.]+)"
+      ip_group: 1
+      severity: 4
+      description: "SOGo authentication failure"
+
+spoa:
+  address: "0.0.0.0"
+  port: 12345
+  max_clients: 100
+  read_timeout: "30s"
+
+ban:
+  initial_ban_time: "5m"
+  max_ban_time: "24h"
+  escalation_factor: 2.0
+  max_attempts: 5
+  time_window: "10m"
+  cleanup_interval: "1m"
+  max_memory_ttl: "72h"
+

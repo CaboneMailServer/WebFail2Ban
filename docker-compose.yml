@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  fail2ban-haproxy:
+    build: .
+    container_name: fail2ban-haproxy
+    ports:
+      - "12345:12345"  # SPOA port
+      - "514:514/udp"  # Syslog port
+    volumes:
+      - ./tests-ressources/config.yaml:/root/config.yaml:ro
+      - ./tests-ressources/logs:/var/log/fail2ban-haproxy
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - mail-network
+
+  haproxy:
+    image: haproxy:2.8-alpine
+    container_name: haproxy-mail
+    ports:
+      - "993:993"     # IMAPS
+      - "143:143"     # IMAP
+      - "587:587"     # SMTP Submission
+      - "465:465"     # SMTPS
+      - "80:80"       # HTTP (SOGo)
+      - "443:443"     # HTTPS (SOGo)
+    volumes:
+      - ./tests-ressources/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./tests-ressources/spoe-ip-reputation.conf:/usr/local/etc/haproxy/spoe-ip-reputation.conf:ro
+    depends_on:
+      - fail2ban-haproxy
+      - dovecot
+      - postfix
+      - sogo
+    restart: unless-stopped
+    networks:
+      - mail-network
+
+  dovecot:
+    image: dovecot/dovecot:latest
+    container_name: dovecot-mail
+    volumes:
+      - ./tests-ressources/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./tests-ressources/dovecot-logs:/var/log/dovecot
+      - mail-data:/var/mail
+    ports:
+      - "10993:993"  # Internal IMAPS
+      - "10143:143"  # Internal IMAP
+    restart: unless-stopped
+    networks:
+      - mail-network
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://fail2ban-haproxy:514"
+        tag: "dovecot"
+
+  postfix:
+    image: postfix:latest
+    container_name: postfix-mail
+    volumes:
+      - ./tests-ressources/postfix/main.cf:/etc/postfix/main.cf:ro
+      - ./tests-ressources/postfix/master.cf:/etc/postfix/master.cf:ro
+      - mail-data:/var/mail
+      - ./tests-ressources/ssl:/etc/ssl/postfix:ro
+    ports:
+      - "10587:587"  # Internal SMTP Submission
+      - "10465:465"  # Internal SMTPS
+    environment:
+      - POSTFIX_HOSTNAME=mail.example.com
+    restart: unless-stopped
+    networks:
+      - mail-network
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://fail2ban-haproxy:514"
+        tag: "postfix"
+
+  sogo:
+    image: sogo/sogo:latest
+    container_name: sogo-mail
+    volumes:
+      - ./tests-ressources/sogo/sogo.conf:/etc/sogo/sogo.conf:ro
+      - ./tests-ressources/sogo/apache.conf:/etc/apache2/conf-enabled/SOGo.conf:ro
+    ports:
+      - "10080:80"   # Internal HTTP
+      - "10443:443"  # Internal HTTPS
+    environment:
+      - SOGO_POSTGRES_HOST=postgres
+      - SOGO_POSTGRES_DB=sogo
+      - SOGO_POSTGRES_USER=sogo
+      - SOGO_POSTGRES_PASSWORD=sogo_password
+    depends_on:
+      - postgres
+      - postfix
+      - dovecot
+    restart: unless-stopped
+    networks:
+      - mail-network
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://fail2ban-haproxy:514"
+        tag: "sogo"
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-sogo
+    environment:
+      - POSTGRES_DB=sogo
+      - POSTGRES_USER=sogo
+      - POSTGRES_PASSWORD=sogo_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./tests-ressources/sogo/sogo-schema.sql:/docker-entrypoint-initdb.d/sogo-schema.sql:ro
+    restart: unless-stopped
+    networks:
+      - mail-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    restart: unless-stopped
+    networks:
+      - mail-network
+
+volumes:
+  mail-data:
+  postgres-data:
+
+networks:
+  mail-network:
+    driver: bridge
+
