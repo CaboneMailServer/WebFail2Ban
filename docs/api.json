@@ -1,0 +1,692 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MailFail2Ban API",
+    "description": "API pour la gestion des bans IP avec support pour HAProxy, Envoy et Nginx",
+    "version": "1.0.0",
+    "contact": {
+      "name": "MailFail2Ban",
+      "url": "https://github.com/badboy/mailfail2ban"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Serveur de développement local"
+    }
+  ],
+  "paths": {
+    "/api/ban": {
+      "post": {
+        "summary": "Bannir une adresse IP",
+        "description": "Ajoute une adresse IP à la liste des IP bannies (temporaire ou permanente)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bannissement réussi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Ban Management"]
+      }
+    },
+    "/api/unban": {
+      "post": {
+        "summary": "Débannir une adresse IP",
+        "description": "Retire une adresse IP de la liste des IP bannies",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Débannissement réussi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Ban Management"]
+      }
+    },
+    "/api/whitelist": {
+      "get": {
+        "summary": "Obtenir la liste blanche",
+        "description": "Récupère toutes les adresses IP de la liste blanche",
+        "responses": {
+          "200": {
+            "description": "Liste blanche récupérée avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhitelistResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Whitelist Management"]
+      },
+      "post": {
+        "summary": "Ajouter à la liste blanche",
+        "description": "Ajoute une adresse IP à la liste blanche",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhitelistRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ajout à la liste blanche réussi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Whitelist Management"]
+      },
+      "delete": {
+        "summary": "Retirer de la liste blanche",
+        "description": "Retire une adresse IP de la liste blanche",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Retrait de la liste blanche réussi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BanResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Whitelist Management"]
+      }
+    },
+    "/api/blacklist": {
+      "get": {
+        "summary": "Obtenir la liste noire",
+        "description": "Récupère toutes les adresses IP de la liste noire (bans permanents)",
+        "responses": {
+          "200": {
+            "description": "Liste noire récupérée avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlacklistResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Blacklist Management"]
+      }
+    },
+    "/api/temp-bans": {
+      "get": {
+        "summary": "Obtenir les bans temporaires",
+        "description": "Récupère toutes les adresses IP avec des bans temporaires actifs",
+        "responses": {
+          "200": {
+            "description": "Bans temporaires récupérés avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TempBanListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TempBanListResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Temporary Bans"]
+      }
+    },
+    "/api/purge-bans": {
+      "post": {
+        "summary": "Purger tous les bans temporaires",
+        "description": "Supprime tous les bans temporaires actifs",
+        "responses": {
+          "200": {
+            "description": "Purge réussie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Temporary Bans"]
+      }
+    },
+    "/api/radix-stats": {
+      "get": {
+        "summary": "Obtenir les statistiques du radix tree",
+        "description": "Récupère les statistiques de performance et d'utilisation du radix tree",
+        "responses": {
+          "200": {
+            "description": "Statistiques récupérées avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadixStatsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadixStatsResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": ["Statistics"]
+      }
+    },
+    "/api/security-status": {
+      "get": {
+        "summary": "Obtenir le statut de sécurité de l'API",
+        "description": "Récupère l'état de la sécurité de l'API (authentification, limitation de débit, etc.)",
+        "responses": {
+          "200": {
+            "description": "Statut de sécurité récupéré avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "security": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur"
+          }
+        },
+        "tags": ["Security"]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BanRequest": {
+        "type": "object",
+        "required": ["ip_address"],
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP à bannir",
+            "example": "192.168.1.100"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Durée du bannissement (format Go duration, ex: '5m', '1h')",
+            "example": "5m"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison du bannissement",
+            "example": "Tentatives de connexion suspectes"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Utilisateur ayant créé le bannissement",
+            "example": "admin"
+          },
+          "permanent": {
+            "type": "boolean",
+            "description": "Si true, ajoute à la liste noire permanente",
+            "example": false
+          }
+        }
+      },
+      "UnbanRequest": {
+        "type": "object",
+        "required": ["ip_address"],
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP à débannir",
+            "example": "192.168.1.100"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison du débannissement",
+            "example": "Fausse alerte"
+          }
+        }
+      },
+      "WhitelistRequest": {
+        "type": "object",
+        "required": ["ip_address"],
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP à ajouter à la liste blanche",
+            "example": "192.168.1.100"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison de l'ajout à la liste blanche",
+            "example": "IP de confiance"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Utilisateur ayant ajouté l'IP",
+            "example": "admin"
+          }
+        }
+      },
+      "BanResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indique si l'opération a réussi"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message décrivant le résultat"
+          },
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP concernée"
+          }
+        }
+      },
+      "ListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indique si l'opération a réussi"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message d'erreur si applicable"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Nombre d'éléments dans la liste"
+          }
+        }
+      },
+      "WhitelistResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ListResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "whitelist": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WhitelistItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "BlacklistResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ListResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "blacklist": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BlacklistItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "WhitelistItem": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison de l'ajout"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date de création"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Créé par"
+          }
+        }
+      },
+      "BlacklistItem": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Raison du bannissement"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date de création"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Créé par"
+          }
+        }
+      },
+      "TempBanItem": {
+        "type": "object",
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "description": "Adresse IP"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date d'expiration du ban"
+          },
+          "duration_remaining": {
+            "type": "string",
+            "description": "Durée restante (format Go duration)"
+          }
+        }
+      },
+      "TempBanListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indique si l'opération a réussi"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Nombre de bans temporaires"
+          },
+          "temp_bans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TempBanItem"
+            }
+          },
+          "message": {
+            "type": "string",
+            "description": "Message d'erreur si applicable"
+          }
+        }
+      },
+      "PurgeResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indique si l'opération a réussi"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message décrivant le résultat"
+          },
+          "purged_count": {
+            "type": "integer",
+            "description": "Nombre de bans supprimés"
+          }
+        }
+      },
+      "RadixStatsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indique si l'opération a réussi"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message d'erreur si applicable"
+          },
+          "stats": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Statistiques du radix tree"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BasicAuth": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "Authentification HTTP Basic (si activée dans la configuration)"
+      }
+    }
+  },
+  "security": [
+    {
+      "BasicAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Ban Management",
+      "description": "Opérations de bannissement et débannissement d'adresses IP"
+    },
+    {
+      "name": "Whitelist Management",
+      "description": "Gestion de la liste blanche des adresses IP de confiance"
+    },
+    {
+      "name": "Blacklist Management",
+      "description": "Gestion de la liste noire des adresses IP bannies de façon permanente"
+    },
+    {
+      "name": "Temporary Bans",
+      "description": "Gestion des bannissements temporaires"
+    },
+    {
+      "name": "Statistics",
+      "description": "Statistiques et métriques du système"
+    },
+    {
+      "name": "Security",
+      "description": "Informations de sécurité de l'API"
+    }
+  ]
+}
