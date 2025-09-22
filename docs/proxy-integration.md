@@ -1,416 +1,229 @@
-# Proxy Integration
+# Proxy Integration Overview
 
-This document explains how to integrate Fail2Ban Multi-Proxy with HAProxy, Envoy, and Nginx.
+This document provides an overview of how to integrate Fail2Ban Multi-Proxy with different reverse proxy technologies. Each proxy type has its own dedicated documentation page with detailed configuration examples.
 
-## HAProxy Integration (SPOA)
+## Supported Proxy Technologies
 
-HAProxy integration uses the SPOA (Stream Processing Offload Agent) protocol.
+The Fail2Ban Multi-Proxy service supports three different proxy integration methods:
 
-### HAProxy Configuration
+### 🔹 HAProxy - SPOA Protocol
+- **Protocol**: SPOA (Stream Processing Offload Agent)
+- **Port**: 12345 (default)
+- **Type**: Binary TCP protocol
+- **Use Case**: HAProxy load balancer authorization
+- **Documentation**: [HAProxy Integration Guide](haproxy.html)
 
-```haproxy
-# haproxy.cfg
-global
-    daemon
-    stats socket /var/run/haproxy/admin.sock mode 660 level admin
-    stats timeout 30s
-    user haproxy
-    group haproxy
+### 🔹 Envoy - gRPC ext_authz
+- **Protocol**: gRPC over HTTP/2
+- **Port**: 9001 (default)
+- **Type**: External Authorization service
+- **Use Case**: Envoy proxy service mesh authorization
+- **Documentation**: [Envoy Integration Guide](envoy.html)
 
-defaults
-    mode http
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
+### 🔹 Nginx - auth_request Module
+- **Protocol**: HTTP/HTTPS
+- **Port**: 8888 (default)
+- **Type**: HTTP subrequest
+- **Use Case**: Nginx web server authorization
+- **Documentation**: [Nginx Integration Guide](nginx.html)
 
-# SPOE configuration
-backend spoe-ip-reputation
-    mode tcp
-    server ip-reputation 127.0.0.1:12345
+## Quick Configuration Overview
 
-# Frontend with SPOE filter
-frontend mail-frontend
-    bind *:143
-    mode tcp
-
-    # SPOE filter for IP reputation check
-    filter spoe engine ip-reputation config /etc/haproxy/spoe-ip-reputation.conf
-
-    # Check if IP is banned
-    tcp-request content reject if { var(sess.banned) -m int eq 1 }
-
-    default_backend mail-backend
-
-backend mail-backend
-    mode tcp
-    server dovecot 127.0.0.1:993
-```
-
-### SPOE Configuration
-
-Create `/etc/haproxy/spoe-ip-reputation.conf`:
-
-```
-[ip-reputation]
-
-spoe-agent ip-reputation-agent
-    messages check-ip
-    option var-prefix ip
-    option set-on-error banned 0
-    timeout hello      5s
-    timeout idle       30s
-    timeout processing 5s
-    use-backend spoe-ip-reputation
-
-spoe-message check-ip
-    args src_ip=src
-    event on-client-session if TRUE
-```
-
-### Testing HAProxy Integration
-
-```bash
-# Test IMAP connection through HAProxy
-telnet localhost 143
-
-# Check HAProxy stats
-echo "show stat" | socat stdio /var/run/haproxy/admin.sock
-
-# Check SPOE agent status
-echo "show backends" | socat stdio /var/run/haproxy/admin.sock | grep spoe
-```
-
-## Envoy Integration (ext_authz)
-
-Envoy integration uses the gRPC ext_authz (External Authorization) service.
-
-### Envoy Configuration
+### Enable All Proxies
 
 ```yaml
-# envoy.yaml
-static_resources:
-  listeners:
-  - name: listener_0
-    address:
-      socket_address:
-        address: 0.0.0.0
-        port_value: 8080
-    filter_chains:
-    - filters:
-      - name: envoy.filters.network.http_connection_manager
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          stat_prefix: ingress_http
-          route_config:
-            name: local_route
-            virtual_hosts:
-            - name: local_service
-              domains: ["*"]
-              routes:
-              - match:
-                  prefix: "/"
-                route:
-                  cluster: service_cluster
-          http_filters:
-          - name: envoy.filters.http.ext_authz
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
-              transport_api_version: V3
-              grpc_service:
-                envoy_grpc:
-                  cluster_name: fail2ban_authz
-                timeout: 0.25s
-              include_peer_certificate: true
-              failure_mode_allow: false
-          - name: envoy.filters.http.router
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+# config.yaml - Enable all three proxy integrations
+spoa:
+  address: "0.0.0.0"
+  port: 12345
+  enabled: true          # HAProxy SPOA
 
-  clusters:
-  - name: service_cluster
-    connect_timeout: 0.25s
-    type: LOGICAL_DNS
-    lb_policy: ROUND_ROBIN
-    load_assignment:
-      cluster_name: service_cluster
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: backend_service
-                port_value: 80
+envoy:
+  address: "0.0.0.0"
+  port: 9001
+  enabled: true          # Envoy ext_authz
 
-  - name: fail2ban_authz
-    connect_timeout: 0.25s
-    type: LOGICAL_DNS
-    lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
-    load_assignment:
-      cluster_name: fail2ban_authz
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: fail2ban-service
-                port_value: 9001
-
-admin:
-  address:
-    socket_address:
-      address: 0.0.0.0
-      port_value: 9901
+nginx:
+  address: "0.0.0.0"
+  port: 8888
+  enabled: true          # Nginx auth_request
 ```
 
-### Testing Envoy Integration
+### Selective Integration
+
+You can enable only the proxy types you need:
+
+```yaml
+# Example: Only Nginx and Envoy
+spoa:
+  enabled: false         # Disable HAProxy SPOA
+
+envoy:
+  enabled: true          # Enable Envoy ext_authz
+
+nginx:
+  enabled: true          # Enable Nginx auth_request
+```
+
+## Architecture Diagram
+
+```mermaid
+flowchart TB
+    Client[Client Request] --> ReverseProxy[Reverse Proxy<br/>HAProxy/Envoy/Nginx]
+
+    ReverseProxy -->|SPOA/gRPC/HTTP<br/>Check IP| Fail2Ban[Fail2Ban Service<br/>IP Ban Manager]
+    Fail2Ban -->|Allow/Deny| ReverseProxy
+
+    ReverseProxy -->|Forward if allowed| Backend[Backend Services<br/>Dovecot/Postfix/SOGo]
+
+    Backend -->|Syslog Events| Fail2Ban
+
+    classDef proxy fill:#e1f5fe
+    classDef security fill:#ffebee
+    classDef service fill:#f3e5f5
+
+    class ReverseProxy proxy
+    class Fail2Ban security
+    class Backend service
+```
+
+## Integration Comparison
+
+| Feature | HAProxy SPOA | Envoy ext_authz | Nginx auth_request |
+|---------|--------------|-----------------|-------------------|
+| **Protocol** | Binary TCP | gRPC/HTTP2 | HTTP/1.1 |
+| **Performance** | Very High | High | Medium |
+| **Complexity** | Medium | High | Low |
+| **TCP Support** | Native | Native | Requires Lua |
+| **HTTP Support** | Yes | Native | Native |
+| **Caching** | Manual | Built-in | Built-in |
+| **Load Balancing** | Built-in | Built-in | Built-in |
+
+## Common Configuration Patterns
+
+### Docker Compose Integration
+
+```yaml
+version: '3.8'
+
+services:
+  fail2ban-service:
+    image: ghcr.io/cabonemailserver/webfail2ban:latest
+    ports:
+      - "12345:12345"  # HAProxy SPOA
+      - "9001:9001"    # Envoy gRPC
+      - "8888:8888"    # Nginx HTTP
+      - "514:514/udp"  # Syslog
+    volumes:
+      - ./config.yaml:/app/config.yaml
+
+  # Choose your proxy technology
+  haproxy:
+    image: haproxy:2.8
+    ports:
+      - "80:80"
+      - "143:143"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+```
+
+## Testing All Integrations
 
 ```bash
-# Test HTTP request through Envoy
-curl -H "Host: example.com" http://localhost:8080/
+# Test HAProxy SPOA (if enabled)
+telnet localhost 143
 
-# Check Envoy admin interface
-curl http://localhost:9901/stats | grep ext_authz
+# Test Envoy ext_authz (if enabled)
+curl http://localhost:8080/
 
-# Check cluster health
-curl http://localhost:9901/clusters | grep fail2ban_authz
-```
-
-## Nginx Integration (auth_request)
-
-Nginx integration uses the auth_request module.
-
-### Nginx Configuration
-
-```nginx
-# nginx.conf
-events {
-    worker_connections 1024;
-}
-
-http {
-    # Upstream for the auth service
-    upstream fail2ban_auth {
-        server fail2ban-service:8888;
-        keepalive 10;
-    }
-
-    # Upstream for backend services
-    upstream backend_service {
-        server dovecot:143;  # or postfix:25, sogo:80, etc.
-    }
-
-    # Rate limiting (optional)
-    limit_req_zone $remote_addr zone=auth:10m rate=10r/s;
-
-    server {
-        listen 80;
-        server_name _;
-
-        # Internal auth location
-        location = /auth {
-            internal;
-            proxy_pass http://fail2ban_auth/auth;
-            proxy_pass_request_body off;
-            proxy_set_header Content-Length "";
-            proxy_set_header X-Original-URI $request_uri;
-            proxy_set_header X-Original-IP $remote_addr;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Host $http_host;
-
-            # Cache auth responses for performance
-            proxy_cache_valid 200 10s;
-            proxy_cache_valid 403 60s;
-        }
-
-        # Protected location
-        location / {
-            # Rate limiting
-            limit_req zone=auth burst=5 nodelay;
-
-            # Perform auth_request
-            auth_request /auth;
-
-            # Pass auth headers to backend
-            auth_request_set $fail2ban_status $upstream_http_x_fail2ban_status;
-            auth_request_set $fail2ban_ip $upstream_http_x_fail2ban_ip;
-            auth_request_set $fail2ban_reason $upstream_http_x_fail2ban_reason;
-
-            # Add headers for backend
-            proxy_set_header X-Fail2ban-Status $fail2ban_status;
-            proxy_set_header X-Fail2ban-IP $fail2ban_ip;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-
-            # Proxy to backend
-            proxy_pass http://backend_service;
-            proxy_set_header Host $host;
-            proxy_set_header Connection "";
-            proxy_http_version 1.1;
-        }
-
-        # Custom error page for banned IPs
-        error_page 403 = @banned;
-        location @banned {
-            return 403 '{"error":"access_denied","reason":"IP banned due to suspicious activity","timestamp":"$time_iso8601"}';
-            add_header Content-Type application/json;
-            add_header X-Fail2ban-Status "banned";
-        }
-
-        # Health check endpoint
-        location /health {
-            return 200 "OK";
-            add_header Content-Type text/plain;
-        }
-    }
-}
-
-# Stream module for TCP proxying (IMAP, SMTP, etc.)
-stream {
-    # Upstream for backend TCP services
-    upstream imap_backend {
-        server dovecot:143;
-    }
-
-    upstream smtp_backend {
-        server postfix:25;
-    }
-
-    # IMAP proxy with basic IP-based access control
-    server {
-        listen 143;
-        proxy_pass imap_backend;
-        proxy_timeout 300s;
-        proxy_responses 1;
-
-        # For TCP streams, auth_request is not available
-        # You would need nginx-lua-module for advanced auth
-        access_log /var/log/nginx/imap_access.log;
-    }
-
-    # SMTP proxy
-    server {
-        listen 25;
-        proxy_pass smtp_backend;
-        proxy_timeout 300s;
-        proxy_responses 1;
-        access_log /var/log/nginx/smtp_access.log;
-    }
-}
-```
-
-### Nginx with Lua (Advanced)
-
-For TCP stream auth_request equivalent, use nginx-lua-module:
-
-```nginx
-stream {
-    lua_package_path "/etc/nginx/lua/?.lua;;";
-
-    upstream fail2ban_auth {
-        server fail2ban-service:8888;
-    }
-
-    upstream imap_backend {
-        server dovecot:143;
-    }
-
-    server {
-        listen 143;
-
-        # Lua access check
-        access_by_lua_block {
-            local http = require "resty.http"
-            local httpc = http.new()
-
-            local res, err = httpc:request_uri("http://fail2ban-service:8888/auth", {
-                method = "GET",
-                headers = {
-                    ["X-Real-IP"] = ngx.var.remote_addr,
-                    ["X-Forwarded-For"] = ngx.var.remote_addr,
-                }
-            })
-
-            if not res or res.status == 403 then
-                ngx.log(ngx.ERR, "IP banned: " .. ngx.var.remote_addr)
-                ngx.exit(ngx.ERROR)
-            end
-        }
-
-        proxy_pass imap_backend;
-        proxy_timeout 300s;
-    }
-}
-```
-
-### Testing Nginx Integration
-
-```bash
-# Test HTTP request through Nginx
-curl http://localhost:80/
-
-# Test with banned IP header
-curl -H "X-Real-IP: 192.168.1.100" http://localhost:80/
+# Test Nginx auth_request (if enabled)
+curl http://localhost:8081/
 
 # Test auth endpoint directly
 curl -H "X-Real-IP: 192.168.1.100" http://localhost:8888/auth
 
-# Check Nginx access logs
-tail -f /var/log/nginx/access.log
-
-# Test health endpoint
-curl http://localhost:80/health
+# Check service health
+curl http://localhost:8888/health
 ```
 
-## Performance Considerations
+## Performance and Monitoring
 
-### HAProxy SPOA
-- Connection pooling: Reuse SPOA connections
-- Timeout configuration: Balance between performance and reliability
-- Monitoring: Use HAProxy stats for SPOE agent health
+### Health Checks
 
-### Envoy ext_authz
-- gRPC connection reuse: Enable HTTP/2 connection pooling
-- Circuit breaking: Configure failure thresholds
-- Load balancing: Use multiple auth service instances
+Each proxy integration provides monitoring capabilities:
 
-### Nginx auth_request
-- Caching: Cache auth responses to reduce load
-- Connection pooling: Use keepalive connections
-- Rate limiting: Protect auth endpoint from abuse
+- **HAProxy**: Statistics interface and admin socket
+- **Envoy**: Admin interface with detailed metrics
+- **Nginx**: Status module and access logs
 
-## Monitoring Integration
+### Logging
 
-All proxy integrations support monitoring through:
+All integrations support structured logging with ban status information:
 
-- Access logs with IP ban status
-- Custom headers indicating ban status
-- Health check endpoints
-- Metrics export (Prometheus compatible)
+```bash
+# Monitor authorization decisions
+docker logs fail2ban-service -f | grep -E "(SPOA|gRPC|HTTP).*IP"
+
+# Check proxy-specific logs
+docker logs haproxy -f    # HAProxy logs
+docker logs envoy -f      # Envoy access logs
+docker logs nginx -f      # Nginx access logs
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Common Issues Across All Proxies
 
-1. **SPOA connection failures**: Check network connectivity and firewall rules
-2. **gRPC timeouts**: Adjust timeout settings in Envoy configuration
-3. **auth_request loops**: Ensure auth endpoint is marked as `internal`
-4. **Performance issues**: Enable caching and connection pooling
+1. **Service connectivity**: Ensure Fail2Ban service is running and accessible
+2. **Port conflicts**: Check that configured ports are available
+3. **Network policies**: Verify firewall rules allow communication
+4. **Configuration syntax**: Validate proxy configuration files
 
 ### Debug Commands
 
 ```bash
-# Check service connectivity
+# Check if services are listening
+netstat -tlnp | grep -E ':(12345|9001|8888)'
+
+# Test service connectivity
 telnet fail2ban-service 12345  # SPOA
-telnet fail2ban-service 9001   # Envoy gRPC
+telnet fail2ban-service 9001   # Envoy (will fail - gRPC only)
 curl fail2ban-service:8888/health  # Nginx
 
-# Test auth decisions
-curl -H "X-Real-IP: 1.2.3.4" http://fail2ban-service:8888/auth
-
-# Monitor logs
-docker logs fail2ban-service -f
+# Generate test traffic
+for i in {1..6}; do
+    echo "<134>$(date '+%b %d %H:%M:%S') hostname dovecot: auth failed, method=PLAIN, rip=192.168.1.100" | nc -u localhost 514
+    sleep 1
+done
 ```
+
+## Security Considerations
+
+- Use dedicated networks for auth service communication
+- Implement proper firewall rules
+- Configure appropriate timeouts and circuit breakers
+- Monitor for service availability and performance
+- Consider TLS encryption for production environments
+- Implement proper error handling and fallback strategies
+
+## Next Steps
+
+Choose your proxy technology and follow the detailed integration guide:
+
+- **[HAProxy Integration →](haproxy.html)** - For high-performance load balancing with SPOA
+- **[Envoy Integration →](envoy.html)** - For modern service mesh architectures with gRPC
+- **[Nginx Integration →](nginx.html)** - For web server proxying with auth_request

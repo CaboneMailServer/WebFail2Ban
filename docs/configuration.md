@@ -279,9 +279,50 @@ Invalid configuration will prevent service startup with detailed error messages.
 
 Currently, configuration changes require service restart. Hot reloading is planned for future versions.
 
+## Advanced Detection Patterns
+
+### Severity Levels
+- **1-2**: Light attempts (non-existent user, expired session)
+- **3-4**: Failed authentication attempts
+- **5-6**: Brute force and repeated abuse
+
+### Automatic Escalation
+1. **First ban**: 5 minutes
+2. **Second ban**: 10 minutes
+3. **Third ban**: 20 minutes
+4. **Fourth ban**: 40 minutes
+5. **Maximum**: 24 hours
+
+### Memory Management
+- **Automatic cleanup**: every minute
+- **Maximum TTL**: 72 hours in memory
+- **Ban expiration**: automatic according to duration
+
+## Monitoring and Observability
+
+### Structured Logs
+Logs include:
+- Pattern violation detections
+- IP bans with durations
+- Ban expirations
+- Cleanup statistics
+- Performance metrics
+
+### Available Metrics (prometheus exporter)
+- Number of active banned IPs
+- Violations per service
+- False positive rate
+- Radix tree performance
+
 ## Security Considerations
 
 - Use restrictive file permissions for config files (600 or 640)
 - Avoid storing sensitive information in environment variables in production
 - Consider using Docker secrets or Kubernetes secrets for sensitive data
 - Validate regex patterns to prevent ReDoS attacks
+- **Strict IP validation** (IPv4/IPv6)
+- **Memory limits** with automatic TTL
+- **Graceful shutdown** of services
+- **Network error handling** and timeouts
+- **Complete containerized isolation**
+- **Complete audit logs**
