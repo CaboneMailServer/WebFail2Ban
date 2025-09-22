@@ -76,6 +76,7 @@ type BanResponse struct {
 // ListResponse represents list responses
 type ListResponse struct {
 	Success   bool            `json:"success"`
+	Message   string          `json:"message"`
 	Count     int             `json:"count"`
 	Blacklist []BlacklistItem `json:"blacklist,omitempty"`
 	Whitelist []WhitelistItem `json:"whitelist,omitempty"`
@@ -451,6 +452,7 @@ func (bm *BanManager) handleGetWhitelist(w http.ResponseWriter, r *http.Request)
 	response := ListResponse{
 		Success:   success,
 		Count:     len(whitelist),
+		Message:   message,
 		Whitelist: whitelist,
 	}
 
@@ -498,6 +500,7 @@ func (bm *BanManager) HandleBlacklist(w http.ResponseWriter, r *http.Request) {
 	response := ListResponse{
 		Success:   success,
 		Count:     len(blacklist),
+		Message:   message,
 		Blacklist: blacklist,
 	}
 
