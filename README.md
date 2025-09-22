@@ -1,6 +1,8 @@
-# Fail2Ban Multi-Proxy
+# Reverse Proxy Fail2Ban dynamic filtering
 
-Real-time IP banning system for HAProxy, Envoy, and Nginx with **🔥 hot configuration reloading**. Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
+Real-time IP banning system for HAProxy, Envoy, and Nginx with **🔥 hot configuration reloading**. 
+
+Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
 
 ## 🔥 **Hot Configuration Reloading**
 
