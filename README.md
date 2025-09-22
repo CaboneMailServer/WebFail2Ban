@@ -24,56 +24,27 @@ in real-time and automatically banning suspicious IPs via multiple proxy integra
 
 ```mermaid
 flowchart TB
-    Client[Client Request] --> Proxy{Proxy Layer}
+    Client[Client Request] --> ReverseProxy[Reverse Proxy<br/>HAProxy/Envoy/Nginx]
 
-    Proxy --> HAProxy[HAProxy<br/>SPOA Protocol]
-    Proxy --> Envoy[Envoy<br/>ext_authz gRPC]
-    Proxy --> Nginx[Nginx<br/>auth_request HTTP]
+    ReverseProxy -->|SPOA/gRPC/HTTP<br/>Check IP| Fail2Ban[Fail2Ban Service<br/>IP Ban Manager]
+    Fail2Ban -->|Allow/Deny| ReverseProxy
 
-    HAProxy -->|SPOA Query<br/>Check IP| Fail2Ban[Fail2Ban Service<br/>IP Ban Manager]
-    Envoy -->|gRPC ext_authz<br/>Check IP| Fail2Ban
-    Nginx -->|HTTP auth_request<br/>Check IP| Fail2Ban
+    ReverseProxy -->|Forward if allowed| Backend[Backend Services<br/>Dovecot/Postfix/SOGo]
 
-    Fail2Ban -->|banned=0/1| HAProxy
-    Fail2Ban -->|Allow/Deny| Envoy
-    Fail2Ban -->|200/403| Nginx
+    Backend -->|Syslog Events| Fail2Ban
 
-    HAProxy -->|Forward if allowed| Backend{Backend Services}
-    Envoy -->|Forward if allowed| Backend
-    Nginx -->|Forward if allowed| Backend
-
-    Backend --> Dovecot[Dovecot<br/>IMAP/POP3]
-    Backend --> Postfix[Postfix<br/>SMTP]
-    Backend --> SOGo[SOGo<br/>Webmail/GroupWare]
-
-    Dovecot -->|Syslog Events| Fail2Ban
-    Postfix -->|Syslog Events| Fail2Ban
-    SOGo -->|Syslog Events| Fail2Ban
-
-    Fail2Ban --> RadixTree[Radix Tree<br/>IP Storage]
-    Fail2Ban --> TTLManager[TTL Manager<br/>Auto Cleanup]
-
-    subgraph "Detection Patterns"
-        Patterns[Auth Failures<br/>Brute Force<br/>Invalid Users<br/>Rate Limiting]
-    end
-
-    Fail2Ban --> Patterns
-
-    subgraph "Ban Escalation"
-        Escalation[5min → 10min → 20min<br/>→ 40min → 24h max]
-    end
-
-    Fail2Ban --> Escalation
+    Fail2Ban --> Storage[Storage & Management<br/>Radix Tree • TTL Manager]
+    Fail2Ban --> Rules[Detection Rules<br/>Auth Failures • Brute Force<br/>Ban Escalation: 5m→24h]
 
     classDef service fill:#e1f5fe
     classDef security fill:#ffebee
     classDef storage fill:#f3e5f5
     classDef proxy fill:#fff3e0
 
-    class Dovecot,Postfix,SOGo service
-    class HAProxy,Envoy,Nginx proxy
-    class Fail2Ban,Patterns,Escalation security
-    class RadixTree,TTLManager storage
+    class Backend service
+    class ReverseProxy proxy
+    class Fail2Ban,Rules security
+    class Storage storage
 ```
 
 The idea is to proxy a service such as IMAP (dovecot), SMTP (postfix),
