@@ -1,12 +1,26 @@
 # Fail2Ban Multi-Proxy
 
-Real-time IP banning system for HAProxy, Envoy, and Nginx. Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
+Real-time IP banning system for HAProxy, Envoy, and Nginx with **🔥 hot configuration reloading**. Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
+
+## 🔥 **Hot Configuration Reloading**
+
+**Modify patterns and ban escalation settings without service restart!**
+
+- **✅ Live pattern updates** - Add/modify detection patterns in real-time
+- **✅ Live ban configuration** - Adjust escalation timeouts without downtime
+- **✅ Database-driven** - Store configuration in SQL database for persistence
+- **✅ Automatic fallback** - Keeps working even if database becomes unavailable
+- **✅ Zero-downtime updates** - No service interruption during config changes
 
 ## Features
 
+- **🔥 Hot configuration reloading** - Modify patterns and ban settings without restart
 - **Real-time syslog analysis** with pattern matching
 - **Multiple proxy integration**: HAProxy (SPOA), Envoy (gRPC ext_authz), Nginx (auth_request)
 - **Ban escalation** with configurable timeouts (5m → 24h)
+- **Database integration** with SQL-based configuration storage
+- **Robust failure handling** with automatic fallback to cached configuration
+- **Prometheus metrics** for comprehensive monitoring
 - **Radix tree** optimized IP storage
 - **Docker-ready** with comprehensive test environment
 
@@ -20,6 +34,28 @@ docker-compose up -d
 
 # Check logs
 docker-compose logs -f fail2ban-haproxy
+```
+
+### 🔥 **Hot Configuration Example**
+
+```bash
+# Enable database configuration for hot reloading
+export FAIL2BAN_DATABASE_ENABLED=true
+export FAIL2BAN_DATABASE_DRIVER=sqlite3
+export FAIL2BAN_DATABASE_DSN=./fail2ban.db
+
+# Start service with database support
+./fail2ban-haproxy
+
+# Add new pattern without restart (via SQL)
+sqlite3 fail2ban.db "INSERT INTO patterns (name, regex, ip_group, severity, description)
+VALUES ('nginx_404', 'nginx.*404.*client: ([0-9.]+)', 1, 2, 'Nginx 404 abuse');"
+
+# Modify ban escalation without restart
+sqlite3 fail2ban.db "UPDATE ban_config SET max_attempts=3, initial_ban_time_seconds=600
+WHERE name='default';"
+
+# Configuration reloads automatically every 5 minutes (configurable)
 ```
 
 ## Supported Reverse Proxies
@@ -42,6 +78,7 @@ Can protect **any service** that can be reverse proxied behind the supported pro
 Basic configuration in `config.yaml`:
 
 ```yaml
+# Ban escalation settings
 ban:
   initial_ban_time: "5m"
   max_ban_time: "24h"
@@ -60,6 +97,19 @@ envoy:
 nginx:
   port: 8888
   enabled: true     # Nginx
+
+# 🔥 Hot configuration reloading (optional)
+database:
+  enabled: true
+  driver: "sqlite3"
+  dsn: "./fail2ban.db"
+  refresh_interval: "5m"
+
+# Prometheus metrics (optional)
+prometheus:
+  enabled: true
+  port: 2112
+  path: "/metrics"
 ```
 
 ## Documentation

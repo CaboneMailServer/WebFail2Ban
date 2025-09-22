@@ -1,6 +1,16 @@
 # Fail2Ban Multi-Proxy - Documentation
 
-Real-time IP banning system for HAProxy, Envoy, and Nginx. Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
+Real-time IP banning system for HAProxy, Envoy, and Nginx with **hot configuration reloading**. Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
+
+## 🔥 **Hot Configuration Reloading**
+
+**Modify patterns and ban escalation settings without service restart!**
+
+- **✅ Live pattern updates** - Add/modify detection patterns in real-time
+- **✅ Live ban configuration** - Adjust escalation timeouts without downtime
+- **✅ Database-driven** - Store configuration in SQL database for persistence
+- **✅ Automatic fallback** - Keeps working even if database becomes unavailable
+- **✅ Zero-downtime updates** - No service interruption during config changes
 
 ## Documentation Index
 
@@ -118,12 +128,13 @@ sequenceDiagram
 
 ## Key Features
 
+- **🔥 Hot configuration reloading**: Modify patterns and ban settings without restart
 - **Real-time syslog analysis** with regex pattern matching
 - **Multiple proxy support**: HAProxy (SPOA), Envoy (gRPC ext_authz), Nginx (auth_request)
 - **Ban escalation**: Configurable timeouts from 5 minutes to 24 hours
 - **Radix tree storage**: Optimized IP address management
-- **Database integration**: SQL-based configuration with hot reloading
-- **Robust failure handling**: Configuration caching and automatic fallback
+- **Database integration**: SQL-based configuration with automatic fallback
+- **Robust failure handling**: Configuration caching and zero-downtime updates
 - **Prometheus metrics**: Comprehensive monitoring and observability
 - **Environment variables**: Full configuration override support
 
@@ -138,6 +149,29 @@ curl http://localhost:8888/health
 
 # Test auth endpoint
 curl -H "X-Real-IP: 192.168.1.100" http://localhost:8888/auth
+```
+
+### 🔥 **Hot Configuration Example**
+
+```bash
+# Enable database configuration for hot reloading
+export FAIL2BAN_DATABASE_ENABLED=true
+export FAIL2BAN_DATABASE_DRIVER=sqlite3
+export FAIL2BAN_DATABASE_DSN=./fail2ban.db
+
+# Start service with database support
+./fail2ban-haproxy
+
+# Add new pattern without restart (via SQL)
+sqlite3 fail2ban.db "INSERT INTO patterns (name, regex, ip_group, severity, description)
+VALUES ('nginx_404', 'nginx.*404.*client: ([0-9.]+)', 1, 2, 'Nginx 404 abuse');"
+
+# Modify ban escalation without restart
+sqlite3 fail2ban.db "UPDATE ban_config SET max_attempts=3, initial_ban_time_seconds=600
+WHERE name='default';"
+
+# Configuration reloads automatically every 5 minutes (configurable)
+# Or force immediate reload via API endpoint
 ```
 
 ## Supported Services
