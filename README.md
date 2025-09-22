@@ -64,7 +64,7 @@ nginx:
 
 ## Documentation
 
-For detailed documentation, see [GitHub Pages](https://cabonemailserver.github.io/WebFail2Ban/):
+For detailed documentation, see [GitHub Pages](https://cabonemailserver.github.io/WebFail2Ban/docs/):
 
 - **[Installation](https://cabonemailserver.github.io/WebFail2Ban/docs/installation.html)** - Installation methods and setup
 - **[Configuration](https://cabonemailserver.github.io/WebFail2Ban/docs/configuration.html)** - Complete configuration reference
