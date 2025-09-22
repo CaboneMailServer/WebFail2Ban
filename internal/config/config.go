@@ -68,6 +68,10 @@ func Load() (*Config, error) {
 	viper.AddConfigPath(".")
 	viper.AddConfigPath("/etc/fail2ban-haproxy/")
 
+	// Enable environment variables
+	viper.SetEnvPrefix("FAIL2BAN")
+	viper.AutomaticEnv()
+
 	// Set defaults
 	setDefaults()
 

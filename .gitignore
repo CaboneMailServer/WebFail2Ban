@@ -4,3 +4,4 @@
 /fail2ban-haproxy
 /.claude/
 /.idea/
+*.iml
