@@ -15,13 +15,15 @@ Real-time IP banning system for HAProxy, Envoy, and Nginx with **🔥 hot config
 ## Features
 
 - **🔥 Hot configuration reloading** - Modify patterns and ban settings without restart
+- **🚀 REST API for ban management** - Manual IP ban/unban with temporary & permanent lists
 - **Real-time syslog analysis** with pattern matching
 - **Multiple proxy integration**: HAProxy (SPOA), Envoy (gRPC ext_authz), Nginx (auth_request)
 - **Ban escalation** with configurable timeouts (5m → 24h)
 - **Database integration** with SQL-based configuration storage
+- **Permanent blacklist/whitelist** - Database-stored IP lists for long-term management
 - **Robust failure handling** with automatic fallback to cached configuration
 - **Prometheus metrics** for comprehensive monitoring
-- **Radix tree** optimized IP storage
+- **Radix tree** optimized IP storage with purge functionality
 - **Docker-ready** with comprehensive test environment
 
 ## Quick Start
@@ -56,6 +58,23 @@ sqlite3 fail2ban.db "UPDATE ban_config SET max_attempts=3, initial_ban_time_seco
 WHERE name='default';"
 
 # Configuration reloads automatically every 5 minutes (configurable)
+```
+
+### 🚀 **API Management Example**
+
+```bash
+# Manual IP ban via REST API
+curl -X POST http://localhost:8888/api/ban \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "192.168.1.100", "duration": "1h"}'
+
+# List current temporary bans
+curl http://localhost:8888/api/temp-bans
+
+# Add to permanent whitelist
+curl -X POST http://localhost:8888/api/whitelist \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "10.0.0.1", "reason": "Admin IP"}'
 ```
 
 ## Supported Reverse Proxies
@@ -118,6 +137,7 @@ For detailed documentation, see [GitHub Pages](https://cabonemailserver.github.i
 
 - **[Installation](https://cabonemailserver.github.io/WebFail2Ban/docs/installation.html)** - Installation methods and setup
 - **[Configuration](https://cabonemailserver.github.io/WebFail2Ban/docs/configuration.html)** - Complete configuration reference
+- **[Ban Management API](https://cabonemailserver.github.io/WebFail2Ban/docs/api.html)** - REST API for manual IP ban/unban operations
 - **[Proxy Integration](https://cabonemailserver.github.io/WebFail2Ban/docs/proxy-integration.html)** - HAProxy, Envoy, and Nginx integration guides
 - **[Testing](https://cabonemailserver.github.io/WebFail2Ban/docs/testing.html)** - Unit tests, integration tests, and performance testing
 

@@ -37,11 +37,35 @@ const (
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);`
 
+	createBlacklistTable = `
+		CREATE TABLE IF NOT EXISTS blacklist (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			ip_address VARCHAR(45) NOT NULL UNIQUE,
+			reason TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) DEFAULT 'system',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE
+		);`
+
+	createWhitelistTable = `
+		CREATE TABLE IF NOT EXISTS whitelist (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			ip_address VARCHAR(45) NOT NULL UNIQUE,
+			reason TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) DEFAULT 'system',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE
+		);`
+
 	createIndexes = `
 		CREATE INDEX IF NOT EXISTS idx_patterns_enabled ON patterns(enabled);
 		CREATE INDEX IF NOT EXISTS idx_ban_config_enabled ON ban_config(enabled);
 		CREATE INDEX IF NOT EXISTS idx_patterns_name ON patterns(name);
-		CREATE INDEX IF NOT EXISTS idx_ban_config_name ON ban_config(name);`
+		CREATE INDEX IF NOT EXISTS idx_ban_config_name ON ban_config(name);
+		CREATE INDEX IF NOT EXISTS idx_blacklist_ip ON blacklist(ip_address);
+		CREATE INDEX IF NOT EXISTS idx_blacklist_enabled ON blacklist(enabled);
+		CREATE INDEX IF NOT EXISTS idx_whitelist_ip ON whitelist(ip_address);
+		CREATE INDEX IF NOT EXISTS idx_whitelist_enabled ON whitelist(enabled);`
 )
 
 // MySQL specific schema adjustments
@@ -73,6 +97,26 @@ const (
 			enabled BOOLEAN NOT NULL DEFAULT TRUE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		);`
+
+	createBlacklistTableMySQL = `
+		CREATE TABLE IF NOT EXISTS blacklist (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			ip_address VARCHAR(45) NOT NULL UNIQUE,
+			reason TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) DEFAULT 'system',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE
+		);`
+
+	createWhitelistTableMySQL = `
+		CREATE TABLE IF NOT EXISTS whitelist (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			ip_address VARCHAR(45) NOT NULL UNIQUE,
+			reason TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) DEFAULT 'system',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE
 		);`
 )
 
@@ -106,6 +150,26 @@ const (
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);`
+
+	createBlacklistTablePostgres = `
+		CREATE TABLE IF NOT EXISTS blacklist (
+			id SERIAL PRIMARY KEY,
+			ip_address VARCHAR(45) NOT NULL UNIQUE,
+			reason TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) DEFAULT 'system',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE
+		);`
+
+	createWhitelistTablePostgres = `
+		CREATE TABLE IF NOT EXISTS whitelist (
+			id SERIAL PRIMARY KEY,
+			ip_address VARCHAR(45) NOT NULL UNIQUE,
+			reason TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) DEFAULT 'system',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE
+		);`
 )
 
 // Pattern represents a pattern configuration from database
@@ -138,6 +202,26 @@ type DatabaseConfig struct {
 	RetryDelay      time.Duration
 }
 
+// BlacklistEntry represents a permanently banned IP
+type BlacklistEntry struct {
+	ID        int       `json:"id"`
+	IPAddress string    `json:"ip_address"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by"`
+	Enabled   bool      `json:"enabled"`
+}
+
+// WhitelistEntry represents a permanently allowed IP
+type WhitelistEntry struct {
+	ID        int       `json:"id"`
+	IPAddress string    `json:"ip_address"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by"`
+	Enabled   bool      `json:"enabled"`
+}
+
 type DB struct {
 	conn   *sql.DB
 	driver string
@@ -166,18 +250,24 @@ func NewDB(dbConfig DatabaseConfig) (*DB, error) {
 }
 
 func (db *DB) InitSchema() error {
-	var patternsSQL, banConfigSQL string
+	var patternsSQL, banConfigSQL, blacklistSQL, whitelistSQL string
 
 	switch db.driver {
 	case "mysql":
 		patternsSQL = createPatternsTableMySQL
 		banConfigSQL = createBanConfigTableMySQL
+		blacklistSQL = createBlacklistTableMySQL
+		whitelistSQL = createWhitelistTableMySQL
 	case "postgres":
 		patternsSQL = createPatternsTablePostgres
 		banConfigSQL = createBanConfigTablePostgres
+		blacklistSQL = createBlacklistTablePostgres
+		whitelistSQL = createWhitelistTablePostgres
 	default: // sqlite3
 		patternsSQL = createPatternsTable
 		banConfigSQL = createBanConfigTable
+		blacklistSQL = createBlacklistTable
+		whitelistSQL = createWhitelistTable
 	}
 
 	// Create tables
@@ -187,6 +277,14 @@ func (db *DB) InitSchema() error {
 
 	if _, err := db.conn.Exec(banConfigSQL); err != nil {
 		return fmt.Errorf("failed to create ban_config table: %w", err)
+	}
+
+	if _, err := db.conn.Exec(blacklistSQL); err != nil {
+		return fmt.Errorf("failed to create blacklist table: %w", err)
+	}
+
+	if _, err := db.conn.Exec(whitelistSQL); err != nil {
+		return fmt.Errorf("failed to create whitelist table: %w", err)
 	}
 
 	// Create indexes
@@ -273,6 +371,120 @@ func (db *DB) Close() error {
 
 func (db *DB) Ping() error {
 	return db.conn.Ping()
+}
+
+// Blacklist management
+func (db *DB) AddToBlacklist(ipAddress, reason, createdBy string) error {
+	_, err := db.conn.Exec(`
+		INSERT INTO blacklist (ip_address, reason, created_by)
+		VALUES (?, ?, ?)`,
+		ipAddress, reason, createdBy)
+	return err
+}
+
+func (db *DB) RemoveFromBlacklist(ipAddress string) error {
+	_, err := db.conn.Exec(`
+		UPDATE blacklist SET enabled = FALSE
+		WHERE ip_address = ?`,
+		ipAddress)
+	return err
+}
+
+func (db *DB) IsBlacklisted(ipAddress string) (bool, error) {
+	var count int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*) FROM blacklist
+		WHERE ip_address = ? AND enabled = TRUE`,
+		ipAddress).Scan(&count)
+	return count > 0, err
+}
+
+func (db *DB) GetBlacklist() ([]BlacklistEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, ip_address, reason, created_at, created_by, enabled
+		FROM blacklist
+		WHERE enabled = TRUE
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query blacklist: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []BlacklistEntry
+	for rows.Next() {
+		var entry BlacklistEntry
+		var reason sql.NullString
+
+		err := rows.Scan(&entry.ID, &entry.IPAddress, &reason, &entry.CreatedAt, &entry.CreatedBy, &entry.Enabled)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan blacklist entry: %w", err)
+		}
+
+		if reason.Valid {
+			entry.Reason = reason.String
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
+}
+
+// Whitelist management
+func (db *DB) AddToWhitelist(ipAddress, reason, createdBy string) error {
+	_, err := db.conn.Exec(`
+		INSERT INTO whitelist (ip_address, reason, created_by)
+		VALUES (?, ?, ?)`,
+		ipAddress, reason, createdBy)
+	return err
+}
+
+func (db *DB) RemoveFromWhitelist(ipAddress string) error {
+	_, err := db.conn.Exec(`
+		UPDATE whitelist SET enabled = FALSE
+		WHERE ip_address = ?`,
+		ipAddress)
+	return err
+}
+
+func (db *DB) IsWhitelisted(ipAddress string) (bool, error) {
+	var count int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*) FROM whitelist
+		WHERE ip_address = ? AND enabled = TRUE`,
+		ipAddress).Scan(&count)
+	return count > 0, err
+}
+
+func (db *DB) GetWhitelist() ([]WhitelistEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, ip_address, reason, created_at, created_by, enabled
+		FROM whitelist
+		WHERE enabled = TRUE
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query whitelist: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []WhitelistEntry
+	for rows.Next() {
+		var entry WhitelistEntry
+		var reason sql.NullString
+
+		err := rows.Scan(&entry.ID, &entry.IPAddress, &reason, &entry.CreatedAt, &entry.CreatedBy, &entry.Enabled)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan whitelist entry: %w", err)
+		}
+
+		if reason.Valid {
+			entry.Reason = reason.String
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
 }
 
 // InsertDefaultData inserts some default patterns and ban config for testing

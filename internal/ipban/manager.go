@@ -194,6 +194,150 @@ func (m *Manager) GetStatsCount() int {
 	return len(m.stats)
 }
 
+// ManualBan manually bans an IP for a specific duration
+func (m *Manager) ManualBan(ip string, duration time.Duration) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Add to radix tree
+	m.tree.Insert(ip)
+
+	// Update or create stats
+	now := time.Now()
+	stats, exists := m.stats[ip]
+	if !exists {
+		stats = &IPStats{
+			Violations: make([]Violation, 0),
+			FirstSeen:  now,
+			LastSeen:   now,
+		}
+		m.stats[ip] = stats
+	}
+
+	stats.BanExpiry = now.Add(duration)
+	stats.BanCount++
+	stats.LastSeen = now
+
+	m.logger.Info("Manual ban applied",
+		zap.String("ip", ip),
+		zap.Duration("duration", duration),
+		zap.Time("expires", stats.BanExpiry))
+
+	return nil
+}
+
+// ManualUnban manually unbans an IP
+func (m *Manager) ManualUnban(ip string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Remove from radix tree
+	m.tree.Delete(ip)
+
+	// Clear ban expiry in stats
+	if stats, exists := m.stats[ip]; exists {
+		stats.BanExpiry = time.Time{}
+	}
+
+	m.logger.Info("Manual unban applied", zap.String("ip", ip))
+
+	return nil
+}
+
+// GetAllBannedIPs returns all currently banned IPs with their expiry times
+func (m *Manager) GetAllBannedIPs() map[string]time.Time {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	result := make(map[string]time.Time)
+	now := time.Now()
+
+	for ip, stats := range m.stats {
+		if !stats.BanExpiry.IsZero() && stats.BanExpiry.After(now) {
+			result[ip] = stats.BanExpiry
+		}
+	}
+
+	return result
+}
+
+// PurgeAllBans removes all temporary bans from memory and radix tree
+func (m *Manager) PurgeAllBans() int {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	count := 0
+	for ip, stats := range m.stats {
+		if !stats.BanExpiry.IsZero() {
+			m.tree.Delete(ip)
+			stats.BanExpiry = time.Time{}
+			count++
+		}
+	}
+
+	m.logger.Info("Purged all temporary bans", zap.Int("count", count))
+
+	return count
+}
+
+// PurgeExpiredBans removes only expired bans (called by cleanup)
+func (m *Manager) PurgeExpiredBans() int {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	count := 0
+	now := time.Now()
+
+	for ip, stats := range m.stats {
+		if !stats.BanExpiry.IsZero() && stats.BanExpiry.Before(now) {
+			m.tree.Delete(ip)
+			stats.BanExpiry = time.Time{}
+			count++
+		}
+	}
+
+	if count > 0 {
+		m.logger.Info("Purged expired bans", zap.Int("count", count))
+	}
+
+	return count
+}
+
+// GetRadixTreeStats returns statistics about the radix tree
+func (m *Manager) GetRadixTreeStats() map[string]interface{} {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	bannedCount := 0
+	now := time.Now()
+
+	for _, stats := range m.stats {
+		if !stats.BanExpiry.IsZero() && stats.BanExpiry.After(now) {
+			bannedCount++
+		}
+	}
+
+	return map[string]interface{}{
+		"total_ips_tracked": len(m.stats),
+		"currently_banned":  bannedCount,
+		"tree_nodes":        m.countRadixNodes(m.tree.root),
+	}
+}
+
+// countRadixNodes recursively counts nodes in the radix tree
+func (m *Manager) countRadixNodes(node *RadixNode) int {
+	if node == nil {
+		return 0
+	}
+
+	count := 1
+	for _, child := range node.children {
+		count += m.countRadixNodes(child)
+	}
+
+	return count
+}
+
 func (rt *RadixTree) Insert(ip string) {
 	bytes := ipToBytes(ip)
 	if bytes == nil {

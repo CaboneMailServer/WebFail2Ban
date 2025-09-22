@@ -16,6 +16,7 @@ Real-time IP banning system for HAProxy, Envoy, and Nginx with **hot configurati
 
 - **[Installation](installation.md)** - Installation methods and setup
 - **[Configuration](configuration.md)** - Complete configuration reference
+- **[Ban Management API](api.md)** - REST API for manual IP ban/unban operations
 - **[Proxy Integration](proxy-integration.md)** - Overview of proxy integration methods
   - **[HAProxy Integration](haproxy.md)** - Detailed HAProxy SPOA configuration
   - **[Envoy Integration](envoy.md)** - Detailed Envoy ext_authz configuration
@@ -129,11 +130,13 @@ sequenceDiagram
 ## Key Features
 
 - **🔥 Hot configuration reloading**: Modify patterns and ban settings without restart
+- **🚀 REST API for ban management**: Manual IP ban/unban with temporary & permanent lists
 - **Real-time syslog analysis** with regex pattern matching
 - **Multiple proxy support**: HAProxy (SPOA), Envoy (gRPC ext_authz), Nginx (auth_request)
 - **Ban escalation**: Configurable timeouts from 5 minutes to 24 hours
-- **Radix tree storage**: Optimized IP address management
+- **Radix tree storage**: Optimized IP address management with purge functionality
 - **Database integration**: SQL-based configuration with automatic fallback
+- **Permanent blacklist/whitelist**: Database-stored IP lists for long-term management
 - **Robust failure handling**: Configuration caching and zero-downtime updates
 - **Prometheus metrics**: Comprehensive monitoring and observability
 - **Environment variables**: Full configuration override support
@@ -171,7 +174,29 @@ sqlite3 fail2ban.db "UPDATE ban_config SET max_attempts=3, initial_ban_time_seco
 WHERE name='default';"
 
 # Configuration reloads automatically every 5 minutes (configurable)
-# Or force immediate reload via API endpoint
+```
+
+### 🚀 **API Management Example**
+
+```bash
+# Manual IP ban via REST API
+curl -X POST http://localhost:8888/api/ban \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "192.168.1.100", "duration": "1h", "reason": "Suspicious activity"}'
+
+# Add to permanent whitelist
+curl -X POST http://localhost:8888/api/whitelist \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address": "10.0.0.1", "reason": "Admin workstation"}'
+
+# List all temporary bans
+curl http://localhost:8888/api/temp-bans
+
+# Purge all temporary bans
+curl -X POST http://localhost:8888/api/purge-bans
+
+# Get radix tree statistics
+curl http://localhost:8888/api/radix-stats
 ```
 
 ## Supported Services

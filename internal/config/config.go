@@ -18,6 +18,7 @@ type Config struct {
 	Ban        BanConfig        `mapstructure:"ban"`
 	Database   DatabaseConfig   `mapstructure:"database"`
 	Prometheus PrometheusConfig `mapstructure:"prometheus"`
+	API        APIConfig        `mapstructure:"api"`
 }
 
 type SyslogConfig struct {
@@ -81,6 +82,25 @@ type PrometheusConfig struct {
 	Address string `mapstructure:"address"`
 	Port    int    `mapstructure:"port"`
 	Path    string `mapstructure:"path"`
+}
+
+type APIConfig struct {
+	Enabled      bool                  `mapstructure:"enabled"`
+	AllowedIPs   []string              `mapstructure:"allowed_ips"` // IP addresses and CIDR ranges
+	BasicAuth    APIBasicAuthConfig    `mapstructure:"basic_auth"`
+	RateLimiting APIRateLimitingConfig `mapstructure:"rate_limiting"`
+}
+
+type APIBasicAuthConfig struct {
+	Enabled  bool              `mapstructure:"enabled"`
+	Username string            `mapstructure:"username"`
+	Password string            `mapstructure:"password"`
+	Users    map[string]string `mapstructure:"users"` // username -> password
+}
+
+type APIRateLimitingConfig struct {
+	Enabled     bool `mapstructure:"enabled"`
+	RequestsPer int  `mapstructure:"requests_per_minute"`
 }
 
 func Load() (*Config, error) {
@@ -148,4 +168,12 @@ func setDefaults() {
 	viper.SetDefault("prometheus.address", "0.0.0.0")
 	viper.SetDefault("prometheus.port", 2112)
 	viper.SetDefault("prometheus.path", "/metrics")
+
+	viper.SetDefault("api.enabled", true)
+	viper.SetDefault("api.allowed_ips", []string{"127.0.0.1/32", "::1/128"}) // localhost only by default
+	viper.SetDefault("api.basic_auth.enabled", false)
+	viper.SetDefault("api.basic_auth.username", "admin")
+	viper.SetDefault("api.basic_auth.password", "")
+	viper.SetDefault("api.rate_limiting.enabled", true)
+	viper.SetDefault("api.rate_limiting.requests_per_minute", 60)
 }

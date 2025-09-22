@@ -493,6 +493,233 @@ prometheus:
 - **Database metrics**: Operations, connection status, reload stats
 - **Service metrics**: Request duration, uptime, build info
 
+## API Security Configuration
+
+The Ban Management API includes comprehensive security features including IP filtering, basic authentication, and rate limiting.
+
+```yaml
+api:
+  enabled: true
+  allowed_ips:                    # IP addresses and CIDR ranges allowed to access API
+    - "127.0.0.1/32"              # localhost IPv4
+    - "::1/128"                   # localhost IPv6
+    - "10.0.0.0/8"                # Private network
+    - "192.168.1.100"             # Specific admin IP
+  basic_auth:
+    enabled: true
+    username: "admin"             # Single user auth
+    password: "secure_password"
+    users:                        # Multiple users auth (alternative to single user)
+      admin: "admin_password"
+      operator: "operator_password"
+      readonly: "readonly_password"
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60       # Max requests per IP per minute
+```
+
+**Environment Variables:**
+- `FAIL2BAN_API_ENABLED`
+- `FAIL2BAN_API_ALLOWED_IPS`
+- `FAIL2BAN_API_BASIC_AUTH_ENABLED`
+- `FAIL2BAN_API_BASIC_AUTH_USERNAME`
+- `FAIL2BAN_API_BASIC_AUTH_PASSWORD`
+- `FAIL2BAN_API_RATE_LIMITING_ENABLED`
+- `FAIL2BAN_API_RATE_LIMITING_REQUESTS_PER_MINUTE`
+
+### Security Features
+
+#### IP Address Filtering
+- **CIDR Support**: Configure IP ranges using CIDR notation
+- **IPv4 and IPv6**: Full support for both IP versions
+- **Multiple Ranges**: Allow multiple IP addresses and ranges
+- **Default**: Localhost only (127.0.0.1/32, ::1/128)
+
+#### Basic Authentication
+- **Single User**: Simple username/password configuration
+- **Multiple Users**: Support for multiple username/password pairs
+- **Constant-time Comparison**: Prevents timing attacks
+- **Optional**: Can be disabled for internal networks
+
+#### Rate Limiting
+- **Per-IP Limiting**: Track requests per client IP address
+- **Configurable Window**: Default 60 requests per minute
+- **Memory Efficient**: Automatic cleanup of old request data
+- **Graceful Degradation**: API remains available if rate limiter fails
+
+### Example Configurations
+
+#### Development (Permissive)
+```yaml
+api:
+  enabled: true
+  allowed_ips:
+    - "0.0.0.0/0"                 # Allow all IPs (development only!)
+  basic_auth:
+    enabled: false                # No authentication
+  rate_limiting:
+    enabled: false                # No rate limiting
+```
+
+#### Production (Secure)
+```yaml
+api:
+  enabled: true
+  allowed_ips:
+    - "10.0.0.0/8"                # Internal network only
+    - "172.16.0.0/12"             # Docker networks
+  basic_auth:
+    enabled: true
+    users:
+      admin: "very_secure_password_123"
+      monitor: "monitoring_password_456"
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 30       # Conservative limit
+```
+
+#### Monitoring/Automation
+```yaml
+api:
+  enabled: true
+  allowed_ips:
+    - "10.0.1.100/32"             # Monitoring server
+    - "10.0.1.101/32"             # Automation server
+  basic_auth:
+    enabled: true
+    username: "automation"
+    password: "automation_token_xyz"
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 120      # Higher limit for automation
+```
+
+## Manual Ban Management API
+
+The service provides REST API endpoints for manual IP ban/unban operations and permanent blacklist/whitelist management.
+
+### API Endpoints
+
+#### Manual Ban Operations
+
+**POST `/api/ban`** - Manually ban an IP address
+```bash
+curl -X POST http://localhost:8888/api/ban \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip_address": "192.168.1.100",
+    "permanent": true,
+    "reason": "Malicious activity detected",
+    "created_by": "admin"
+  }'
+```
+
+**POST `/api/unban`** - Manually unban an IP address
+```bash
+curl -X POST http://localhost:8888/api/unban \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip_address": "192.168.1.100",
+    "reason": "False positive"
+  }'
+```
+
+#### Permanent Whitelist Management
+
+**POST `/api/whitelist`** - Add IP to permanent whitelist
+```bash
+curl -X POST http://localhost:8888/api/whitelist \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip_address": "10.0.0.1",
+    "reason": "Trusted admin IP",
+    "created_by": "admin"
+  }'
+```
+
+**DELETE `/api/whitelist`** - Remove IP from whitelist
+```bash
+curl -X DELETE http://localhost:8888/api/whitelist \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip_address": "10.0.0.1"
+  }'
+```
+
+**GET `/api/whitelist`** - List all whitelisted IPs
+```bash
+curl http://localhost:8888/api/whitelist
+```
+
+#### Blacklist Information
+
+**GET `/api/blacklist`** - List all blacklisted IPs
+```bash
+curl http://localhost:8888/api/blacklist
+```
+
+### API Response Format
+
+All API endpoints return JSON responses with the following format:
+
+```json
+{
+  "success": true,
+  "message": "IP 192.168.1.100 permanently banned (blacklisted)",
+  "ip_address": "192.168.1.100"
+}
+```
+
+List endpoints return:
+```json
+{
+  "success": true,
+  "count": 2,
+  "blacklist": [
+    {
+      "ip_address": "192.168.1.100",
+      "reason": "Malicious activity",
+      "created_at": "2024-01-15T10:30:00Z",
+      "created_by": "admin"
+    }
+  ]
+}
+```
+
+### Database Tables
+
+The API operations use the following database tables:
+
+#### Blacklist Table
+```sql
+-- Permanently banned IPs
+INSERT INTO blacklist (ip_address, reason, created_by)
+VALUES ('192.168.1.100', 'Brute force attack', 'admin');
+
+-- Remove from blacklist
+UPDATE blacklist SET enabled = FALSE
+WHERE ip_address = '192.168.1.100';
+```
+
+#### Whitelist Table
+```sql
+-- Permanently allowed IPs
+INSERT INTO whitelist (ip_address, reason, created_by)
+VALUES ('10.0.0.1', 'Admin workstation', 'system');
+
+-- Remove from whitelist
+UPDATE whitelist SET enabled = FALSE
+WHERE ip_address = '10.0.0.1';
+```
+
+### Security Considerations
+
+- **IP Validation**: All IP addresses are validated before processing
+- **Access Control**: Consider implementing authentication for API endpoints in production
+- **Rate Limiting**: Implement rate limiting to prevent API abuse
+- **Audit Logging**: All API operations are logged with timestamps and user information
+- **Database Integrity**: Use unique constraints to prevent duplicate entries
+
 ## Advanced Detection Patterns
 
 ### Severity Levels
