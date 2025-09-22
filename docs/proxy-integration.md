@@ -93,11 +93,12 @@ flowchart TB
 |---------|--------------|-----------------|-------------------|
 | **Protocol** | Binary TCP | gRPC/HTTP2 | HTTP/1.1 |
 | **Performance** | Very High | High | Medium |
-| **Complexity** | Medium | High | Low |
-| **TCP Support** | Native | Native | Requires Lua |
-| **HTTP Support** | Yes | Native | Native |
-| **Caching** | Manual | Built-in | Built-in |
+| **Configuration Complexity** | Low | Medium | HTTP: Medium, Mail: Medium, TCP: High |
+| **TCP Proxying with External Auth** | Full support | Full support | Mail: ngx_mail, TCP: Lua* |
+| **Auth Response Caching** | Manual setup | Built-in features | Built-in features |
 | **Load Balancing** | Built-in | Built-in | Built-in |
+
+**\* TCP Proxying with Nginx:** Nginx can proxy TCP traffic via the `stream` module, but `auth_request` only works for HTTP. For TCP authorization with external auth, you need Lua scripts. For mail protocols specifically (IMAP/SMTP/POP3), Nginx also provides the `ngx_mail` module with native `auth_http` support that can integrate with the Fail2Ban service.
 
 ## Common Configuration Patterns
 

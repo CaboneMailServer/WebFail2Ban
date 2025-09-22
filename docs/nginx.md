@@ -279,9 +279,309 @@ server {
 }
 ```
 
-### TCP Stream Configuration
+## TCP Stream Configuration and Mail Proxy
 
-For TCP services like IMAP and SMTP, you can use the stream module with Lua for auth_request equivalent:
+Nginx supports TCP proxying via the `stream` module, which can handle IMAP, SMTP, and other TCP protocols.
+
+### Basic TCP Proxying without Authorization
+
+For simple TCP proxying without auth_request (auth is handled by the backend service itself):
+
+```nginx
+# /etc/nginx/nginx.conf
+load_module modules/ngx_stream_module.so;
+
+events {
+    worker_connections 1024;
+}
+
+# HTTP context for web services
+http {
+    # Your HTTP configuration here
+}
+
+# Stream context for TCP/UDP proxying
+stream {
+    # Upstream definitions
+    upstream imap_backend {
+        server dovecot:143;
+        server dovecot2:143 backup;
+    }
+
+    upstream imaps_backend {
+        server dovecot:993;
+        server dovecot2:993 backup;
+    }
+
+    upstream smtp_backend {
+        server postfix:25;
+        server postfix2:25 backup;
+    }
+
+    upstream smtps_backend {
+        server postfix:465;
+        server postfix2:465 backup;
+    }
+
+    # IMAP proxy (port 143)
+    server {
+        listen 143;
+        proxy_pass imap_backend;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        proxy_bind $remote_addr transparent;  # Preserve client IP
+        access_log /var/log/nginx/imap_access.log;
+    }
+
+    # IMAPS proxy (port 993)
+    server {
+        listen 993 ssl;
+        ssl_certificate /etc/ssl/certs/mail.example.com.pem;
+        ssl_certificate_key /etc/ssl/private/mail.example.com.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+
+        proxy_pass imaps_backend;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/imaps_access.log;
+    }
+
+    # SMTP proxy (port 25)
+    server {
+        listen 25;
+        proxy_pass smtp_backend;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/smtp_access.log;
+    }
+
+    # SMTPS proxy (port 465)
+    server {
+        listen 465 ssl;
+        ssl_certificate /etc/ssl/certs/mail.example.com.pem;
+        ssl_certificate_key /etc/ssl/private/mail.example.com.key;
+
+        proxy_pass smtps_backend;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/smtps_access.log;
+    }
+}
+```
+
+### Native Mail Proxy Support
+
+Nginx supports native proxying for mail protocols via two modules:
+- **`stream` module**: Generic TCP/UDP proxying (shown above)
+- **`ngx_mail` module**: Specialized mail proxy with protocol awareness
+
+#### Mail Module (ngx_mail) Configuration
+
+The `ngx_mail` module provides native support for IMAP, POP3, and SMTP protocols with built-in authentication and authorization capabilities:
+
+```nginx
+# /etc/nginx/nginx.conf with mail module
+load_module modules/ngx_mail_module.so;
+
+events {
+    worker_connections 1024;
+}
+
+# HTTP context for auth backend
+http {
+    upstream fail2ban_auth {
+        server fail2ban-service:8888;
+    }
+
+    # Auth backend for mail module
+    server {
+        listen 8889;
+
+        location /auth-mail {
+            proxy_pass http://fail2ban_auth/auth;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Protocol $http_auth_protocol;
+            proxy_set_header X-Auth-User $http_auth_user;
+
+            # Mail module expects specific headers
+            proxy_set_header Auth-Status $upstream_http_auth_status;
+            proxy_set_header Auth-Server $upstream_http_auth_server;
+            proxy_set_header Auth-Port $upstream_http_auth_port;
+        }
+    }
+}
+
+# Mail context for IMAP/POP3/SMTP
+mail {
+    # Auth configuration
+    auth_http http://127.0.0.1:8889/auth-mail;
+    auth_http_timeout 5s;
+
+    # Protocol settings
+    imap_capabilities "IMAP4rev1" "UIDPLUS" "IDLE" "LITERAL+" "QUOTA";
+    pop3_capabilities "LAST" "TOP" "USER" "PIPELINING" "UIDL";
+    smtp_capabilities "SIZE 10485760" "VRFY" "ETRN" "ENHANCEDSTATUSCODES" "8BITMIME" "DSN";
+
+    # SSL configuration
+    ssl_certificate /etc/ssl/certs/mail.pem;
+    ssl_certificate_key /etc/ssl/private/mail.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # IMAP server
+    server {
+        listen 143;
+        listen 993 ssl;
+        protocol imap;
+        proxy on;
+        proxy_pass_error_message on;
+        proxy_timeout 24h;
+        proxy_send_timeout 5s;
+        proxy_read_timeout 5s;
+
+        # Error log for debugging
+        error_log /var/log/nginx/mail_imap.log info;
+    }
+
+    # POP3 server
+    server {
+        listen 110;
+        listen 995 ssl;
+        protocol pop3;
+        proxy on;
+        proxy_pass_error_message on;
+        proxy_timeout 24h;
+
+        error_log /var/log/nginx/mail_pop3.log info;
+    }
+
+    # SMTP server
+    server {
+        listen 25;
+        listen 587 ssl;
+        listen 465 ssl;
+        protocol smtp;
+        proxy on;
+        proxy_pass_error_message on;
+        proxy_timeout 5m;
+        smtp_auth login plain cram-md5;
+        xclient off;
+
+        error_log /var/log/nginx/mail_smtp.log info;
+    }
+}
+```
+
+#### Stream Module IMAP/POP3/SMTP (Alternative approach)
+
+```nginx
+# Alternative: Stream module configuration with backend authentication
+stream {
+    upstream imap_pool {
+        server dovecot1:143 weight=3;
+        server dovecot2:143 weight=2;
+        server dovecot3:143 backup;
+    }
+
+    upstream pop3_pool {
+        server dovecot1:110;
+        server dovecot2:110;
+    }
+
+    # IMAP proxy
+    server {
+        listen 143;
+        proxy_pass imap_pool;
+        proxy_timeout 600s;         # Allow longer IMAP sessions
+        proxy_responses 1;          # Expected responses from IMAP
+        proxy_connect_timeout 3s;
+
+        # Preserve client information
+        proxy_bind $remote_addr transparent;
+
+        # Logging
+        access_log /var/log/nginx/imap.log;
+        error_log /var/log/nginx/imap_error.log;
+    }
+
+    # POP3 proxy
+    server {
+        listen 110;
+        proxy_pass pop3_pool;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/pop3.log;
+    }
+
+    # IMAPS (SSL/TLS)
+    server {
+        listen 993 ssl;
+        ssl_certificate /etc/ssl/certs/mail.pem;
+        ssl_certificate_key /etc/ssl/private/mail.key;
+
+        proxy_pass imap_pool;
+        proxy_timeout 600s;
+        proxy_responses 1;
+
+        # SSL passthrough to backend
+        proxy_ssl on;
+        proxy_ssl_verify off;
+    }
+}
+```
+
+#### SMTP Proxy with Submission Support
+
+```nginx
+stream {
+    upstream smtp_pool {
+        server postfix1:25;
+        server postfix2:25;
+    }
+
+    upstream submission_pool {
+        server postfix1:587;
+        server postfix2:587;
+    }
+
+    # SMTP proxy (port 25)
+    server {
+        listen 25;
+        proxy_pass smtp_pool;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/smtp.log;
+    }
+
+    # SMTP Submission (port 587) with STARTTLS
+    server {
+        listen 587;
+        proxy_pass submission_pool;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/submission.log;
+    }
+
+    # SMTPS (port 465) with implicit SSL
+    server {
+        listen 465 ssl;
+        ssl_certificate /etc/ssl/certs/mail.pem;
+        ssl_certificate_key /etc/ssl/private/mail.key;
+
+        proxy_pass submission_pool;
+        proxy_timeout 300s;
+        proxy_responses 1;
+        access_log /var/log/nginx/smtps.log;
+    }
+}
+```
+
+### TCP Proxying with Authorization (Lua Required)
+
+For TCP stream authorization equivalent to auth_request, you need the Lua module. **Note**: This requires `lua-resty-http` and is more complex than HTTP auth_request. This approach works for all TCP protocols including mail protocols (IMAP, SMTP, POP3):
 
 ```nginx
 # /etc/nginx/nginx.conf (with stream module)
@@ -376,6 +676,12 @@ stream {
         proxy_responses 1;
     }
 }
+
+# Note: This Lua-based approach works for all mail protocols:
+# - IMAP (port 143, 993)
+# - SMTP (port 25, 465, 587)
+# - POP3 (port 110, 995)
+# Simply adapt the listen port and backend accordingly.
 ```
 
 ## Docker Compose Example
@@ -425,10 +731,14 @@ services:
 
 ## Performance Optimization
 
-### Caching Auth Responses
+## Authorization Response Caching
+
+Nginx provides built-in caching capabilities for auth_request responses:
+
+### Basic Auth Response Caching
 
 ```nginx
-# Create cache directory
+# Create cache directory and zone
 proxy_cache_path /var/cache/nginx/auth levels=1:2 keys_zone=auth_cache:10m max_size=100m inactive=60m use_temp_path=off;
 
 server {
@@ -438,16 +748,185 @@ server {
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
 
-        # Cache configuration
+        # Basic cache configuration
         proxy_cache auth_cache;
         proxy_cache_key "$remote_addr";
-        proxy_cache_valid 200 10s;
-        proxy_cache_valid 403 60s;
+        proxy_cache_valid 200 10s;   # Cache allowed IPs for 10 seconds
+        proxy_cache_valid 403 60s;   # Cache banned IPs for 60 seconds
         proxy_cache_use_stale error timeout invalid_header updating;
 
         # Headers
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+### Advanced Caching with Custom Keys
+
+```nginx
+# Multi-tier caching zones
+proxy_cache_path /var/cache/nginx/auth_short levels=1:2 keys_zone=auth_short:10m max_size=50m inactive=5m;
+proxy_cache_path /var/cache/nginx/auth_long levels=1:2 keys_zone=auth_long:50m max_size=500m inactive=60m;
+
+map $upstream_http_x_fail2ban_status $cache_zone {
+    default auth_short;
+    "banned" auth_long;  # Cache banned IPs longer
+}
+
+map $upstream_http_x_fail2ban_status $cache_time {
+    default "5s";
+    "banned" "300s";     # Cache banned IPs for 5 minutes
+}
+
+server {
+    location = /auth {
+        internal;
+        proxy_pass http://fail2ban_auth/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+
+        # Dynamic caching based on response
+        proxy_cache $cache_zone;
+        proxy_cache_key "$remote_addr:$http_user_agent";  # Include User-Agent for better differentiation
+
+        # Cache valid responses with dynamic TTL
+        proxy_cache_valid 200 $cache_time;
+        proxy_cache_valid 403 300s;  # Always cache bans for 5 minutes
+        proxy_cache_valid any 1s;    # Cache errors briefly
+
+        # Advanced cache behavior
+        proxy_cache_use_stale error timeout invalid_header updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;         # Prevent thundering herd
+        proxy_cache_lock_timeout 5s;
+        proxy_cache_revalidate on;   # Use conditional requests
+
+        # Headers
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Original-URI $request_uri;
+
+        # Add cache status header for debugging
+        add_header X-Cache-Status $upstream_cache_status always;
+    }
+}
+```
+
+### Geographic-based Caching
+
+```nginx
+# Different cache strategies based on IP ranges
+geo $auth_cache_strategy {
+    default standard;
+    10.0.0.0/8 internal;      # Internal IPs - shorter cache
+    172.16.0.0/12 internal;
+    192.168.0.0/16 internal;
+}
+
+map $auth_cache_strategy $cache_key_suffix {
+    standard "";
+    internal ":internal";
+}
+
+map $auth_cache_strategy $cache_ttl {
+    standard "60s";
+    internal "10s";           # Cache internal IPs for shorter time
+}
+
+server {
+    location = /auth {
+        internal;
+        proxy_pass http://fail2ban_auth/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+
+        # Geographic-aware caching
+        proxy_cache auth_cache;
+        proxy_cache_key "$remote_addr$cache_key_suffix";
+        proxy_cache_valid 200 $cache_ttl;
+        proxy_cache_valid 403 300s;
+
+        # Headers
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Auth-Strategy $auth_cache_strategy;
+    }
+}
+```
+
+### Redis-based Distributed Caching
+
+For multi-server deployments, use Redis with lua-resty-redis:
+
+```nginx
+# Install lua-resty-redis module first
+# lua_package_path "/usr/local/lib/lua/?.lua;;";
+
+init_by_lua_block {
+    local redis = require "resty.redis"
+    -- Initialize Redis connection pool
+}
+
+server {
+    location = /auth {
+        internal;
+
+        # Check Redis cache first
+        access_by_lua_block {
+            local redis = require "resty.redis"
+            local red = redis:new()
+            red:set_timeouts(100, 100, 100)  -- 100ms timeouts
+
+            local ok, err = red:connect("redis", 6379)
+            if not ok then
+                ngx.log(ngx.ERR, "Failed to connect to Redis: ", err)
+                return  -- Fall through to auth service
+            end
+
+            local cache_key = "auth:" .. ngx.var.remote_addr
+            local cached_result, err = red:get(cache_key)
+
+            if cached_result and cached_result ~= ngx.null then
+                if cached_result == "banned" then
+                    ngx.status = 403
+                    ngx.say("Banned")
+                    ngx.exit(403)
+                elseif cached_result == "allowed" then
+                    ngx.status = 200
+                    ngx.say("OK")
+                    ngx.exit(200)
+                end
+            end
+
+            red:set_keepalive(10000, 100)  # Connection pooling
+        }
+
+        # If not cached, proxy to auth service
+        proxy_pass http://fail2ban_auth/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Cache the result in Redis
+        header_filter_by_lua_block {
+            local redis = require "resty.redis"
+            local red = redis:new()
+            red:set_timeouts(100, 100, 100)
+
+            local ok, err = red:connect("redis", 6379)
+            if ok then
+                local cache_key = "auth:" .. ngx.var.remote_addr
+                local cache_value = "allowed"
+                local ttl = 60  -- 1 minute default
+
+                if ngx.status == 403 then
+                    cache_value = "banned"
+                    ttl = 300  -- 5 minutes for banned IPs
+                end
+
+                red:setex(cache_key, ttl, cache_value)
+                red:set_keepalive(10000, 100)
+            end
+        }
     }
 }
 ```

@@ -465,16 +465,149 @@ circuit_breakers:
       min_retry_concurrency: 5
 ```
 
-### Caching Authorization Results
+## Authorization Response Caching
+
+Envoy provides multiple built-in caching mechanisms for ext_authz responses:
+
+### Built-in Authorization Result Caching
 
 ```yaml
 http_filters:
+- name: envoy.filters.http.ext_authz
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+    grpc_service:
+      envoy_grpc:
+        cluster_name: fail2ban_authz
+      timeout: 0.25s
+
+    # Enable result caching
+    allowed_headers:
+      patterns:
+      - exact: "cache-control"
+      - exact: "expires"
+
+    # Cache configuration
+    filter_enabled_metadata:
+      filter: envoy.filters.http.ext_authz
+      path:
+      - key: cache_result
+      value:
+        bool_value: true
+```
+
+### HTTP Cache Filter Integration
+
+```yaml
+http_filters:
+# Add HTTP cache filter before ext_authz
 - name: envoy.filters.http.cache
   typed_config:
     "@type": type.googleapis.com/envoy.extensions.filters.http.cache.v3.CacheConfig
     typed_config:
       "@type": type.googleapis.com/envoy.extensions.cache.simple_http_cache.v3.SimpleHttpCacheConfig
-      cache_size_bytes: 1048576  # 1MB cache
+      cache_size_bytes: 10485760  # 10MB cache for auth responses
+    cache_config:
+      max_body_bytes: 1024
+      allowed_vary_headers:
+      - exact: "x-forwarded-for"
+      - exact: "x-real-ip"
+
+- name: envoy.filters.http.ext_authz
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+    grpc_service:
+      envoy_grpc:
+        cluster_name: fail2ban_authz
+      timeout: 0.25s
+
+    # Configure caching headers
+    status_on_error:
+      code: 403
+    clear_route_cache: false  # Keep route cache for performance
+```
+
+### Advanced Caching with TTL
+
+Configure the Fail2Ban service to return appropriate cache headers:
+
+```yaml
+# In your Fail2Ban service, modify the gRPC response to include cache headers
+# This would be implemented in the Envoy ext_authz server code
+
+# Example response headers for caching:
+# - Allowed IPs: Cache-Control: max-age=60 (cache for 1 minute)
+# - Banned IPs: Cache-Control: max-age=300 (cache for 5 minutes)
+```
+
+### Cluster-level Caching
+
+```yaml
+clusters:
+- name: fail2ban_authz
+  connect_timeout: 0.25s
+  type: LOGICAL_DNS
+  lb_policy: ROUND_ROBIN
+  http2_protocol_options: {}
+
+  # Enable upstream caching
+  upstream_connection_options:
+    tcp_keepalive:
+      keepalive_probes: 3
+      keepalive_time: 30
+      keepalive_interval: 5
+
+  # Circuit breaker with caching considerations
+  circuit_breakers:
+    thresholds:
+    - priority: DEFAULT
+      max_connections: 100
+      max_pending_requests: 20
+      max_requests: 1000
+      max_retries: 2
+      track_remaining: true
+
+  load_assignment:
+    cluster_name: fail2ban_authz
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: fail2ban-service
+              port_value: 9001
+```
+
+### Redis-based Distributed Caching
+
+For multi-instance Envoy deployments:
+
+```yaml
+# Add Redis cluster for shared caching
+- name: redis_cache
+  connect_timeout: 0.25s
+  type: LOGICAL_DNS
+  lb_policy: ROUND_ROBIN
+  load_assignment:
+    cluster_name: redis_cache
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: redis
+              port_value: 6379
+
+# Configure cache filter with Redis backend
+http_filters:
+- name: envoy.filters.http.cache
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.cache.v3.CacheConfig
+    typed_config:
+      "@type": type.googleapis.com/envoy.extensions.cache.redis.v3.RedisConfig
+      cluster_name: redis_cache
+      key_prefix: "auth_cache:"
+      default_ttl: 300s  # 5 minutes default TTL
 ```
 
 ## Troubleshooting

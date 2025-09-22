@@ -317,6 +317,110 @@ curl -H "X-Forwarded-For: 192.168.1.100" http://localhost:80/
 # Should receive 403 or connection refused
 ```
 
+## Authorization Response Caching
+
+HAProxy doesn't have built-in caching for SPOA responses, but you can implement caching strategies:
+
+### Manual Response Caching
+
+```haproxy
+# Use stick tables to cache ban decisions
+backend stick-table-cache
+    stick-table type ip size 10k expire 60s store gpc0
+
+frontend http-frontend
+    bind *:80
+
+    # Check cache first
+    http-request track-sc0 src table stick-table-cache
+    http-request set-var(txn.cached_banned) sc_get_gpc0(0) if { sc_tracked(0) }
+
+    # Skip SPOE if we have cached result
+    filter spoe engine ip-reputation config /etc/haproxy/spoe-ip-reputation.conf if !{ var(txn.cached_banned) -m found }
+
+    # Use cached result or SPOE result
+    http-request deny if { var(txn.cached_banned) eq 1 }
+    http-request deny if { var(txn.banned) -m int eq 1 }
+
+    # Cache the SPOE result
+    http-request sc-set-gpc0(0) 1 if { var(txn.banned) -m int eq 1 }
+
+    default_backend web-backend
+```
+
+### Stick Table Caching Strategy
+
+```haproxy
+# Create dedicated cache table
+backend ip-reputation-cache
+    stick-table type ip size 100k expire 300s store gpc0,gpc1
+    # gpc0 = ban status (0=allowed, 1=banned)
+    # gpc1 = timestamp of last check
+
+# Enhanced frontend with caching
+frontend cached-frontend
+    bind *:80
+
+    # Track IP in cache table
+    http-request track-sc0 src table ip-reputation-cache
+
+    # Get cached values
+    http-request set-var(txn.cached_status) sc_get_gpc0(0)
+    http-request set-var(txn.cache_time) sc_get_gpc1(0)
+    http-request set-var(txn.current_time) date()
+
+    # Use cache if fresh (less than 60 seconds old)
+    http-request set-var(txn.cache_age) sub(%[var(txn.current_time)],%[var(txn.cache_time)])
+    http-request set-var(txn.use_cache) bool(1) if { var(txn.cache_age) lt 60000 }
+
+    # Apply cached decision
+    http-request deny if { var(txn.use_cache) -m bool } { var(txn.cached_status) eq 1 }
+    http-request accept if { var(txn.use_cache) -m bool } { var(txn.cached_status) eq 0 }
+
+    # If no cache or expired, use SPOE
+    filter spoe engine ip-reputation config /etc/haproxy/spoe-ip-reputation.conf if !{ var(txn.use_cache) -m bool }
+
+    # Cache new SPOE result
+    http-request sc-set-gpc0(0) 1 if !{ var(txn.use_cache) -m bool } { var(txn.banned) -m int eq 1 }
+    http-request sc-set-gpc0(0) 0 if !{ var(txn.use_cache) -m bool } { var(txn.banned) -m int eq 0 }
+    http-request sc-set-gpc1(0) int(%[date()]) if !{ var(txn.use_cache) -m bool }
+
+    # Apply SPOE decision
+    http-request deny if { var(txn.banned) -m int eq 1 }
+
+    default_backend web-backend
+```
+
+### Redis-based Caching (Advanced)
+
+For distributed setups, you can use Redis with Lua scripts:
+
+```haproxy
+# Use Lua script for Redis caching
+lua-load /etc/haproxy/redis-cache.lua
+
+frontend redis-cached-frontend
+    bind *:80
+
+    # Check Redis cache first
+    http-request lua.check_redis_cache
+
+    # Use cached result if available
+    http-request deny if { var(txn.redis_banned) eq 1 }
+    http-request accept if { var(txn.redis_cached) -m bool }
+
+    # If not cached, use SPOE
+    filter spoe engine ip-reputation config /etc/haproxy/spoe-ip-reputation.conf if !{ var(txn.redis_cached) -m bool }
+
+    # Cache SPOE result in Redis
+    http-request lua.cache_redis_result if !{ var(txn.redis_cached) -m bool }
+
+    # Apply SPOE decision
+    http-request deny if { var(txn.banned) -m int eq 1 }
+
+    default_backend web-backend
+```
+
 ## Performance Considerations
 
 ### Connection Pooling
