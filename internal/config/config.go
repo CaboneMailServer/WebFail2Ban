@@ -4,15 +4,20 @@ import (
 	"fmt"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Syslog SyslogConfig `mapstructure:"syslog"`
-	SPOA   SPOAConfig   `mapstructure:"spoa"`
-	Envoy  EnvoyConfig  `mapstructure:"envoy"`
-	Nginx  NginxConfig  `mapstructure:"nginx"`
-	Ban    BanConfig    `mapstructure:"ban"`
+	Syslog     SyslogConfig     `mapstructure:"syslog"`
+	SPOA       SPOAConfig       `mapstructure:"spoa"`
+	Envoy      EnvoyConfig      `mapstructure:"envoy"`
+	Nginx      NginxConfig      `mapstructure:"nginx"`
+	Ban        BanConfig        `mapstructure:"ban"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	Prometheus PrometheusConfig `mapstructure:"prometheus"`
 }
 
 type SyslogConfig struct {
@@ -60,6 +65,22 @@ type BanConfig struct {
 	TimeWindow       time.Duration `mapstructure:"time_window"`
 	CleanupInterval  time.Duration `mapstructure:"cleanup_interval"`
 	MaxMemoryTTL     time.Duration `mapstructure:"max_memory_ttl"`
+}
+
+type DatabaseConfig struct {
+	Enabled         bool          `mapstructure:"enabled"`
+	Driver          string        `mapstructure:"driver"`           // sqlite3, mysql, postgres
+	DSN             string        `mapstructure:"dsn"`              // Data Source Name
+	RefreshInterval time.Duration `mapstructure:"refresh_interval"` // How often to reload config from DB
+	MaxRetries      int           `mapstructure:"max_retries"`
+	RetryDelay      time.Duration `mapstructure:"retry_delay"`
+}
+
+type PrometheusConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Address string `mapstructure:"address"`
+	Port    int    `mapstructure:"port"`
+	Path    string `mapstructure:"path"`
 }
 
 func Load() (*Config, error) {
@@ -115,4 +136,16 @@ func setDefaults() {
 	viper.SetDefault("ban.time_window", "10m")
 	viper.SetDefault("ban.cleanup_interval", "1m")
 	viper.SetDefault("ban.max_memory_ttl", "72h")
+
+	viper.SetDefault("database.enabled", false)
+	viper.SetDefault("database.driver", "sqlite3")
+	viper.SetDefault("database.dsn", "./fail2ban.db")
+	viper.SetDefault("database.refresh_interval", "5m")
+	viper.SetDefault("database.max_retries", 3)
+	viper.SetDefault("database.retry_delay", "5s")
+
+	viper.SetDefault("prometheus.enabled", false)
+	viper.SetDefault("prometheus.address", "0.0.0.0")
+	viper.SetDefault("prometheus.port", 2112)
+	viper.SetDefault("prometheus.path", "/metrics")
 }

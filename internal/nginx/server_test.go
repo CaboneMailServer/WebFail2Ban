@@ -79,9 +79,9 @@ func TestExtractClientIP(t *testing.T) {
 		{
 			name: "X-Original-IP header (highest priority)",
 			headers: map[string]string{
-				"X-Original-IP":    "192.168.1.100",
-				"X-Forwarded-For":  "10.0.0.1",
-				"X-Real-IP":        "172.16.0.1",
+				"X-Original-IP":   "192.168.1.100",
+				"X-Forwarded-For": "10.0.0.1",
+				"X-Real-IP":       "172.16.0.1",
 			},
 			expected: "192.168.1.100",
 		},

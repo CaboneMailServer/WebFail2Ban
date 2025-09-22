@@ -40,12 +40,91 @@ flowchart TB
     class Storage storage
 ```
 
+## Ban Escalation Mechanics
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Reverse Proxy
+    participant F as Fail2Ban Service
+    participant S as Syslog Source
+    participant DB as Database/Config
+
+    Note over F: System starts, loads patterns & config
+    F->>DB: Load patterns & ban config
+    DB-->>F: Patterns: dovecot, postfix, sogo
+
+    Note over C,S: Normal operation flow
+    C->>P: Request (IP: 192.168.1.100)
+    P->>F: Check IP ban status
+    F-->>P: IP allowed (not banned)
+    P->>C: Forward request/response
+
+    Note over S,F: Authentication failure detected
+    S->>F: Syslog: auth failed, rip=192.168.1.100
+    F->>F: Pattern match: dovecot-auth-failure
+    F->>F: Record attempt #1 (severity: 1)
+
+    Note over C,F: Subsequent failures trigger escalation
+    loop 4 more failures within time window (10m)
+        S->>F: Syslog: auth failed, rip=192.168.1.100
+        F->>F: Record attempt #2-5
+    end
+
+    Note over F: Ban threshold reached (5 attempts)
+    F->>F: Create ban: 192.168.1.100<br/>Duration: 5m (initial_ban_time)
+    F->>F: Store in radix tree with TTL
+
+    Note over C,P: Subsequent requests blocked
+    C->>P: Request (IP: 192.168.1.100)
+    P->>F: Check IP ban status
+    F-->>P: IP banned (deny)
+    P-->>C: HTTP 403 / TCP connection refused
+
+    Note over F: Ban expires, IP tries again
+    F->>F: TTL expires, remove from radix tree
+
+    Note over S,F: Second ban cycle (escalation)
+    loop 5 failures within time window
+        S->>F: Syslog: auth failed, rip=192.168.1.100
+        F->>F: Record attempt (history exists)
+    end
+
+    F->>F: Create escalated ban: 192.168.1.100<br/>Duration: 10m (5m × 2.0 escalation_factor)
+
+    Note over F: Continue escalation until max_ban_time
+    F->>F: Next ban: 20m → 40m → 80m → 160m → 320m<br/>Cap at max_ban_time: 24h
+
+    Note over F: Cleanup and maintenance
+    F->>F: Cleanup expired bans (every 1m)
+    F->>F: Clean old attempts (max_memory_ttl: 72h)
+
+    opt Database enabled
+        F->>DB: Reload config (every 5m)
+        alt Database available
+            DB-->>F: Updated patterns & config
+            F->>F: Cache new config in memory
+        else Database failure
+            Note over F,DB: Keep using cached config
+            F->>F: Use last known good config
+            F->>F: Increment failure counter
+            F->>F: Log: "Using cached config from [timestamp]"
+        end
+    end
+
+    Note over F: Robust failure handling
+    F->>F: Config priority:<br/>1. Live database<br/>2. Cached database<br/>3. File fallback
+```
+
 ## Key Features
 
 - **Real-time syslog analysis** with regex pattern matching
 - **Multiple proxy support**: HAProxy (SPOA), Envoy (gRPC ext_authz), Nginx (auth_request)
 - **Ban escalation**: Configurable timeouts from 5 minutes to 24 hours
 - **Radix tree storage**: Optimized IP address management
+- **Database integration**: SQL-based configuration with hot reloading
+- **Robust failure handling**: Configuration caching and automatic fallback
+- **Prometheus metrics**: Comprehensive monitoring and observability
 - **Environment variables**: Full configuration override support
 
 ## Quick Start
@@ -92,6 +171,19 @@ ban:
   max_ban_time: "24h"
   max_attempts: 5
   time_window: "10m"
+
+# Database configuration (optional)
+database:
+  enabled: true
+  driver: "sqlite3"
+  dsn: "./fail2ban.db"
+  refresh_interval: "5m"
+
+# Prometheus metrics (optional)
+prometheus:
+  enabled: true
+  port: 2112
+  path: "/metrics"
 ```
 
 ## Project Structure
@@ -99,7 +191,9 @@ ban:
 ```
 ├── docs/                   # Documentation
 ├── internal/               # Go source code
-│   ├── config/            # Configuration management
+│   ├── config/            # Configuration management & hot reloading
+│   ├── database/          # SQL database integration
+│   ├── metrics/           # Prometheus metrics collection
 │   ├── envoy/             # Envoy ext_authz server
 │   ├── ipban/             # IP banning logic
 │   ├── nginx/             # Nginx auth_request server

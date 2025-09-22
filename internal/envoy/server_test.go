@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 )
 
 func getTestConfig() *config.Config {
