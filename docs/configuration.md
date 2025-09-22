@@ -277,7 +277,221 @@ Invalid configuration will prevent service startup with detailed error messages.
 
 ## Configuration Reloading
 
-Currently, configuration changes require service restart. Hot reloading is planned for future versions.
+Currently, configuration changes require service restart, except when using database configuration which supports hot reloading.
+
+## Database Configuration
+
+### Overview
+
+The service supports externalizing patterns and ban configuration to SQL databases (SQLite, MySQL, PostgreSQL) with automatic fallback to file configuration. This enables:
+
+- **Hot configuration reloading** without service restart
+- **Centralized configuration management** across multiple instances
+- **Configuration persistence** with automatic failure recovery
+- **Fallback to file configuration** when database is unavailable
+
+### Database Configuration
+
+```yaml
+database:
+  enabled: true                    # Enable database configuration
+  driver: "sqlite3"                # Database driver: sqlite3, mysql, postgres
+  dsn: "./fail2ban.db"            # Data Source Name
+  refresh_interval: "5m"           # How often to reload config from DB
+  max_retries: 3                   # Maximum retry attempts on failure
+  retry_delay: "5s"               # Delay between retry attempts
+```
+
+**Environment Variables:**
+- `FAIL2BAN_DATABASE_ENABLED`
+- `FAIL2BAN_DATABASE_DRIVER`
+- `FAIL2BAN_DATABASE_DSN`
+- `FAIL2BAN_DATABASE_REFRESH_INTERVAL`
+- `FAIL2BAN_DATABASE_MAX_RETRIES`
+- `FAIL2BAN_DATABASE_RETRY_DELAY`
+
+### Database Connection Examples
+
+#### SQLite (Default)
+```yaml
+database:
+  enabled: true
+  driver: "sqlite3"
+  dsn: "./fail2ban.db"
+```
+
+#### MySQL
+```yaml
+database:
+  enabled: true
+  driver: "mysql"
+  dsn: "user:password@tcp(localhost:3306)/fail2ban"
+```
+
+#### PostgreSQL
+```yaml
+database:
+  enabled: true
+  driver: "postgres"
+  dsn: "postgres://user:password@localhost/fail2ban?sslmode=disable"
+```
+
+### Database Schema
+
+The service automatically creates the required tables:
+
+#### Patterns Table
+```sql
+CREATE TABLE patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    regex TEXT NOT NULL,
+    ip_group INTEGER NOT NULL DEFAULT 1,
+    severity INTEGER NOT NULL DEFAULT 1,
+    description TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Ban Configuration Table
+```sql
+CREATE TABLE ban_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    initial_ban_time_seconds INTEGER NOT NULL,
+    max_ban_time_seconds INTEGER NOT NULL,
+    escalation_factor REAL NOT NULL,
+    max_attempts INTEGER NOT NULL,
+    time_window_seconds INTEGER NOT NULL,
+    cleanup_interval_seconds INTEGER NOT NULL,
+    max_memory_ttl_seconds INTEGER NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Failure Handling and Fallback
+
+The configuration manager implements robust failure handling:
+
+#### 🔄 **Configuration Caching**
+- **Last known good configuration** is cached in memory
+- **Automatic fallback** to cached config during database outages
+- **File configuration** used as ultimate fallback
+
+#### 📊 **Failure Tracking**
+- **Failure counter** tracks consecutive database errors
+- **Connection status** monitoring with real-time health checks
+- **Automatic recovery** detection and logging
+
+#### ⚡ **Hot Reloading**
+- **No service interruption** during configuration updates
+- **Atomic configuration updates** - either all changes apply or none
+- **Change notifications** via update channels
+
+### Configuration Priority
+
+The service uses the following priority order:
+
+1. **Database configuration** (if enabled and connected)
+2. **Cached database configuration** (if database temporarily unavailable)
+3. **File configuration** (ultimate fallback)
+
+### Monitoring Database Configuration
+
+#### Configuration Source Tracking
+```bash
+# Check configuration source via metrics endpoint
+curl http://localhost:8888/config/source
+
+# Response example:
+{
+  "patterns_source": "database_cached",
+  "ban_config_source": "database_cached",
+  "database_enabled": true,
+  "database_connected": false
+}
+```
+
+#### Database Status Monitoring
+```bash
+# Check database status
+curl http://localhost:8888/database/status
+
+# Response example:
+{
+  "enabled": true,
+  "connected": false,
+  "driver": "sqlite3",
+  "failure_count": 3,
+  "last_successful_load": "2024-01-15T10:30:00Z",
+  "has_cached_config": true,
+  "last_error": "database connection timeout"
+}
+```
+
+### Prometheus Metrics
+
+Database-related metrics are available:
+
+```prometheus
+# Database operations
+fail2ban_database_operations_total{operation="reload",status="success"} 45
+fail2ban_database_operations_total{operation="reload",status="failure"} 3
+
+# Configuration reloads
+fail2ban_config_reloads_total{source="database",status="success"} 42
+fail2ban_config_reloads_total{source="file",status="success"} 1
+
+# Patterns loaded
+fail2ban_config_patterns_loaded 15
+```
+
+### Best Practices
+
+#### High Availability
+- Use **database clustering** for production deployments
+- Configure **appropriate timeouts** for your environment
+- Monitor **failure counts** and set up alerts
+- Test **failover scenarios** regularly
+
+#### Performance
+- Set **refresh_interval** based on your change frequency (default: 5m)
+- Use **connection pooling** for high-traffic deployments
+- Consider **read replicas** for distributed configurations
+
+#### Security
+- Use **encrypted connections** to database in production
+- Implement **proper access controls** on database
+- **Audit configuration changes** through database logs
+- Use **secrets management** for database credentials
+
+## Prometheus Configuration
+
+```yaml
+prometheus:
+  enabled: true                    # Enable Prometheus metrics
+  address: "0.0.0.0"              # Listen address
+  port: 2112                       # Metrics port
+  path: "/metrics"                 # Metrics endpoint path
+```
+
+**Environment Variables:**
+- `FAIL2BAN_PROMETHEUS_ENABLED`
+- `FAIL2BAN_PROMETHEUS_ADDRESS`
+- `FAIL2BAN_PROMETHEUS_PORT`
+- `FAIL2BAN_PROMETHEUS_PATH`
+
+### Available Metrics
+
+- **Request counters**: Total requests by service and result
+- **Ban metrics**: Total bans, current bans, ban durations
+- **Pattern metrics**: Pattern matches by pattern and severity
+- **Database metrics**: Operations, connection status, reload stats
+- **Service metrics**: Request duration, uptime, build info
 
 ## Advanced Detection Patterns
 
