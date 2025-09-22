@@ -1,0 +1,17 @@
+title: Fail2Ban Multi-Proxy
+description: Real-time IP banning system for HAProxy, Envoy, and Nginx. Originally designed to protect Dovecot, Postfix, and SOGo by analyzing syslog logs, but can protect any service behind supported reverse proxies.
+show_downloads: true
+theme: jekyll-theme-cayman
+
+plugins:
+  - jekyll-mentions
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# Mermaid configuration
+mermaid:
+  # Enable mermaid diagrams
+  enabled: true

@@ -1,0 +1,187 @@
+name: Build Container Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=sha,prefix={{branch}}-
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push Docker image with Buildx
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  build-container-buildah:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Buildah and Podman
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y buildah podman
+
+    - name: Log in to Container Registry
+      run: |
+        echo ${{ secrets.GITHUB_TOKEN }} | buildah login -u ${{ github.actor }} --password-stdin ${{ env.REGISTRY }}
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=${GITHUB_SHA::8}
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+
+    - name: Build multi-arch container with Buildah
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION"
+        IMAGE_TAG_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+        # Build for AMD64
+        buildah build \
+          --format docker \
+          --arch amd64 \
+          --tag "$IMAGE_TAG-amd64" \
+          --tag "$IMAGE_TAG_LATEST-amd64" \
+          --file ./Dockerfile \
+          .
+
+        # Build for ARM64
+        buildah build \
+          --format docker \
+          --arch arm64 \
+          --tag "$IMAGE_TAG-arm64" \
+          --tag "$IMAGE_TAG_LATEST-arm64" \
+          --file ./Dockerfile \
+          .
+
+        # Push individual architecture images
+        buildah push "$IMAGE_TAG-amd64"
+        buildah push "$IMAGE_TAG-arm64"
+
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          buildah push "$IMAGE_TAG_LATEST-amd64"
+          buildah push "$IMAGE_TAG_LATEST-arm64"
+        fi
+
+    - name: Create and push multi-arch manifest
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION"
+        IMAGE_TAG_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+        # Create manifest for version tag
+        buildah manifest create "$IMAGE_TAG"
+        buildah manifest add "$IMAGE_TAG" "$IMAGE_TAG-amd64"
+        buildah manifest add "$IMAGE_TAG" "$IMAGE_TAG-arm64"
+        buildah manifest push --all "$IMAGE_TAG"
+
+        # Create manifest for latest tag (only on tag push)
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          buildah manifest create "$IMAGE_TAG_LATEST"
+          buildah manifest add "$IMAGE_TAG_LATEST" "$IMAGE_TAG_LATEST-amd64"
+          buildah manifest add "$IMAGE_TAG_LATEST" "$IMAGE_TAG_LATEST-arm64"
+          buildah manifest push --all "$IMAGE_TAG_LATEST"
+        fi
+
+    - name: Generate SBOM
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+        format: spdx-json
+        output-file: sbom.spdx.json
+
+    - name: Upload SBOM as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom-${{ steps.version.outputs.version }}
+        path: sbom.spdx.json
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-container
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=${GITHUB_SHA::8}
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+        format: sarif
+        output: trivy-results.sarif
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: trivy-results.sarif

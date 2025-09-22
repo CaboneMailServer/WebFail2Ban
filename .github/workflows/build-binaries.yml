@@ -1,0 +1,197 @@
+name: Build Go Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-binaries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - goos: linux
+            goarch: arm
+            goarm: 7
+            name: linux-armv7
+          - goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            name: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            name: windows-amd64
+            ext: .exe
+          - goos: freebsd
+            goarch: amd64
+            name: freebsd-amd64
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=${GITHUB_SHA::8}
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+
+    - name: Get dependencies
+      run: go mod download
+
+    - name: Run tests
+      run: go test -v ./...
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        GOARM: ${{ matrix.goarm }}
+        CGO_ENABLED: 0
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        BINARY_NAME="mailfail2ban-${{ matrix.name }}${{ matrix.ext }}"
+
+        # Build with version info
+        go build \
+          -a \
+          -installsuffix cgo \
+          -ldflags "-s -w -X main.version=$VERSION -X main.commit=${{ github.sha }} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          -o "$BINARY_NAME" \
+          .
+
+        # Create checksum
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum "$BINARY_NAME" > "$BINARY_NAME.sha256"
+        else
+          shasum -a 256 "$BINARY_NAME" > "$BINARY_NAME.sha256"
+        fi
+
+        # List files for debugging
+        ls -la
+
+    - name: Upload binary as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mailfail2ban-${{ matrix.name }}
+        path: |
+          mailfail2ban-${{ matrix.name }}${{ matrix.ext }}
+          mailfail2ban-${{ matrix.name }}${{ matrix.ext }}.sha256
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: build-binaries
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Release version: $VERSION"
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p ./release-assets
+        find ./artifacts -type f -name "mailfail2ban-*" -exec cp {} ./release-assets/ \;
+        ls -la ./release-assets/
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Extract changelog for current version
+        VERSION=${{ steps.version.outputs.version }}
+
+        # Generate basic changelog from commits since last tag
+        LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -n "$LAST_TAG" ]; then
+          echo "## Changes since $LAST_TAG" > changelog.md
+          git log --pretty=format:"- %s (%h)" $LAST_TAG..HEAD >> changelog.md
+        else
+          echo "## Initial Release" > changelog.md
+          echo "First release of Fail2Ban Multi-Proxy" >> changelog.md
+        fi
+
+        echo "" >> changelog.md
+        echo "## Assets" >> changelog.md
+        echo "- Container images: \`ghcr.io/${{ github.repository }}:$VERSION\`" >> changelog.md
+        echo "- Pre-built binaries for multiple platforms" >> changelog.md
+        echo "- SHA256 checksums for all binaries" >> changelog.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        body_path: changelog.md
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+        files: ./release-assets/*
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    runs-on: ubuntu-latest
+    needs: create-release
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-')
+    steps:
+    - name: Extract version from tag
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Update Homebrew formula
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+
+        # Download the Darwin AMD64 binary to calculate SHA256
+        curl -L -o "${REPO_NAME}-darwin-amd64" \
+          "https://github.com/${{ github.repository }}/releases/download/${VERSION}/${REPO_NAME}-darwin-amd64"
+
+        SHA256=$(sha256sum "${REPO_NAME}-darwin-amd64" | cut -d' ' -f1)
+
+        echo "Version: $VERSION"
+        echo "SHA256: $SHA256"
+        echo "Formula would be updated with these values"
+
+        # TODO: Create PR to homebrew-tap repository
+        # This would require a separate repository for Homebrew formulas
