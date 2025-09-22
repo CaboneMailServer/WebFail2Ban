@@ -140,7 +140,7 @@ For detailed documentation, see [GitHub Pages](https://cabonemailserver.github.i
 - **[Installation](https://cabonemailserver.github.io/WebFail2Ban/docs/installation.html)** - Installation methods and setup
 - **[Configuration](https://cabonemailserver.github.io/WebFail2Ban/docs/configuration.html)** - Complete configuration reference
 - **[Ban Management API](https://cabonemailserver.github.io/WebFail2Ban/docs/api.html)** - REST API for manual IP ban/unban operations
-- **[API Reference (OpenAPI)](<https://raw.githubusercontent.com/CaboneMailServer/WebFail2Ban/refs/heads/master/docs/api.jsonhttps://raw.githubusercontent.com/CaboneMailServer/WebFail2Ban/refs/heads/master/docs/api.json)** - Interactive API documentation with Swagger UI
+- **[API Reference (OpenAPI)](https://raw.githubusercontent.com/CaboneMailServer/WebFail2Ban/refs/heads/master/docs/api.jsonhttps://raw.githubusercontent.com/CaboneMailServer/WebFail2Ban/refs/heads/master/docs/api.json)** - Interactive API documentation with Swagger UI
 - **[Proxy Integration](https://cabonemailserver.github.io/WebFail2Ban/docs/proxy-integration.html)** - HAProxy, Envoy, and Nginx integration guides
 - **[Testing](https://cabonemailserver.github.io/WebFail2Ban/docs/testing.html)** - Unit tests, integration tests, and performance testing
 
